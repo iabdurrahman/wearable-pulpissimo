@@ -56,7 +56,7 @@ COMMON_CFLAGS = \
 # =============================================================================
 ifeq ($(PLATFORM), linux)
 
-TARGET  = gui_app
+TARGET  = $(BUILD_DIR)/gui_app
 CC      = gcc
 CFLAGS  = -O0 -g -Wall -Wextra \
           $(COMMON_CFLAGS) \
