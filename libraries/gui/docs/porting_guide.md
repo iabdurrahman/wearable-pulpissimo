@@ -1,264 +1,281 @@
 # LVGL GUI Framework — Porting & Developer Guide
 
-**Project:** ICDeC RISC-V Wearable
-**GUI stack:** LVGL v9 · SDL2 (Linux dev) · RISC-V bare-metal (target)
+**Project:** ICDeC RISC-V Wearable  
+**GUI Stack:** LVGL v9 · SDL2 (Linux dev) · RISC-V bare-metal (target) · EEZ Studio (Layout Engine)
 
 ---
 
-## 1. Architecture overview
+## 1. Architecture Overview
+
 
 ```
+
 ┌────────────────────────────────────────────────────────────┐
-│  Application  (main.c)                                     │
-│  • UI screens built with LVGL widgets                      │
-│  • on_gesture() callback for navigation                    │
+│  Application Scheduling  (main.c)                          │
+│  • Performs main bare-metal while(1) loop execution        │
+│  • Polls RTC, PPG, I2C, and coordinates system states      │
+└─────────────────────────────┬──────────────────────────────┘
+│ Dispatches raw metrics data
+▼
+┌────────────────────────────────────────────────────────────┐
+│  Decoupled UI Display Layer  (src/display_layer.c)         │
+│  • Maps system variables directly onto named EEZ widgets   │
+│  • Manages text formatting blocks (e.g., "%d bpm")         │
+│  • **100% Unit-Testable on Host Linux via Mocks**          │
 ├──────────────────┬─────────────────────────────────────────┤
 │  display_driver  │  input_driver                           │
 │  (src/)          │  (src/)                                 │
 │                  │                                         │
 │  Linux:          │  Linux:                                 │
-│  lv_sdl_window   │  lv_sdl_mouse  ─► gesture engine       │
+│  lv_sdl_window   │  lv_sdl_mouse  ─► gesture engine        │
 │                  │                                         │
 │  RISC-V:         │  RISC-V:                                │
-│  OLED module ◄── │  touch module ─► gesture engine        │
+│  OLED module ◄── │  touch module ─► gesture engine         │
 │  flush_cb        │  read_cb                                │
 ├──────────────────┴─────────────────────────────────────────┤
-│  gesture.c  (src/)  — pure C, zero LVGL dependency        │
-│  click · double-click · long-press · swipe ×4             │
+│  gesture.c  (src/)  — pure C, zero LVGL dependency         │
+│  click · double-click · long-press · swipe ×4              │
 ├────────────────────────────────────────────────────────────┤
 │  LVGL v9  (libs/lvgl/)                                     │
 ├─────────────────────┬──────────────────────────────────────┤
 │  Linux / SDL2       │  RISC-V / pulp-runtime               │
 └─────────────────────┴──────────────────────────────────────┘
+
 ```
 
-Everything above the `display_driver` / `input_driver` line is
-platform-independent and never changes between builds.
+Everything above the `display_driver` / `input_driver` boundary line is completely platform-independent and is preserved identically across targets.
 
 ---
 
-## 2. Project structure
+## 2. Project Structure
+
 
 ```
+
 gui/
-├── setup.sh               One-shot environment setup
-├── lv_conf.h          LVGL v9 config (platform-aware via #ifdef)
-├── main.c             Entry point + UI screens
-├── Makefile           PLATFORM=linux | riscv
+├── setup.sh                 One-shot system setup environment tool
+├── lv_conf.h                LVGL v9 layout configurations (handled via #ifdefs)
+├── main.c                   Main event loop execution + raw hardware polling loop
+├── Makefile                 PLATFORM=linux | riscv configuration driver
+├── docs/
+│   ├── extending.md         Guide for expanding inputs, outputs, and UI layouts
+│   ├── display_layer.md     API reference guide for the decoupled UI processor
+│   └── porting_guide.md     This file
 ├── libs/
-│   └── lvgl/          LVGL v9 source (cloned by setup.sh)
+│   └── lvgl/                LVGL v9 native submodule repository
 ├── src/
-│   ├── display_driver.h / .c   Platform display init
-│   ├── input_driver.h  / .c   Platform input init + gesture bridge
-│   ├── gesture.h       / .c   Pure-C gesture state machine
-├── tests/
-│   ├── test_gesture.c  Unit tests (host, no hardware needed)
-│   └── Makefile
-└── docs/
-    └── porting_guide.md   ← this file
+│   ├── ui/                  Auto-generated clean layout output files from EEZ Studio
+│   │   ├── ui.h / .c
+│   │   └── screens.c
+│   ├── display_layer.h / .c Decoupled text-formatting layer (Binds variables to UI)
+│   ├── display_driver.h / .c Target platform visual hardware init
+│   ├── input_driver.h   / .c Target platform hardware read + gesture routers
+│   └── gesture.h        / .c Pure-C isolated gesture classification state machine
+└── tests/
+    ├── test_gesture.c       Unit tests tracking touch interaction mechanics
+    ├── test_ui_layers.c     Unit tests checking display states and string mutations
+    └── Makefile             Segmented targets (make, make gesture, make ui)
+
 ```
 
 ---
 
-## 3. Quick start
+## 3. Quick Start
 
-### 3.1 First-time setup
+### 3.1 First-Time Setup
 
 ```bash
-# Install Linux prerequisites
+# Install host Linux development primitives
 sudo apt install build-essential libsdl2-dev git     # Ubuntu/Debian
 
-# Run setup
+# Execute build layout configuration
 ./setup.sh
+
 ```
 
-### 3.2 Build and run on Linux (SDL2 window)
+### 3.2 Build and Run on Linux (SDL2 Desktop Preview)
 
 ```bash
 make PLATFORM=linux
 ./build/gui_app
+
 ```
 
-You will see a **512 × 256 px SDL window** (4× zoom of the 128 × 64 OLED).  
-Mouse interaction:
+You will see a **512 × 256 px SDL window** (4× scaled aspect view of your 128 × 64 monochrome OLED hardware configuration target).
 
-| Mouse action | Gesture produced |
-|---|---|
-| Left-click and release | CLICK |
-| Two quick left-clicks | DOUBLE_CLICK |
-| Click and hold (600 ms) | LONG_PRESS |
-| Click and drag ≥ 20 px horizontal | SWIPE_LEFT / SWIPE_RIGHT |
-| Click and drag ≥ 20 px vertical | SWIPE_UP / SWIPE_DOWN |
+| Desktop Mouse Action | Gesture Generated |
+| --- | --- |
+| Left-click and immediate release | `GESTURE_CLICK` |
+| Two quick left-clicks sequentially | `GESTURE_DOUBLE_CLICK` |
+| Click and remain stationary (≥ 600 ms) | `GESTURE_LONG_PRESS` |
+| Click and drag left/right ≥ 20 px | `GESTURE_SWIPE_LEFT` / `GESTURE_SWIPE_RIGHT` |
+| Click and drag up/down ≥ 20 px | `GESTURE_SWIPE_UP` / `GESTURE_SWIPE_DOWN` |
 
-### 3.3 Run unit tests (no hardware, no SDL)
+### 3.3 Execute Automated Unit Testing Suites
 
 ```bash
-cd app/tests
-make
-# Expected: 29 passed, 0 failed, exit code 0
+cd tests
+make         # Executes both isolated testing pipelines back-to-back
+make gesture # Runs only touch pattern recognition checks
+make ui      # Runs only layout structural mutations and text checks
+
 ```
 
-### 3.4 Build for RISC-V
+### 3.4 Cross-Compiling for NusaCore RISC-V Target Hardware
 
 ```bash
-. ./env.sh                        # configure toolchain (once per terminal)
-cd app
+. ./env.sh                        # Load target toolchain profile paths (Once per terminal session)
 make PLATFORM=riscv
-echo $?                           # must print 0
-# binary: build/gui_app/gui_app
+echo $?                           # Verification check: Must return 0
+# Target Output Binary Location: build/gui_app
+
 ```
 
 ---
 
-## 4. Connecting the ICDeC hardware modules
+## 4. Connecting the ICDeC Hardware Peripherals
 
-To add OLED and touch modules, plug them in
-at **two clearly marked TODO locations**.
+To switch out development stubs for physical microcontrollers, implement communication calls inside **`src/display_driver.c`** and **`src/input_driver.c`**.
 
-### 4.1 Display — `src/display_driver.c` (RISC-V section)
+### 4.1 Monochrome Display — `src/display_driver.c`
 
-Find the `oled_flush_cb` function and `display_driver_init`:
+Open **`lv_conf.h`** and confirm that the execution mode is set to 1-bit monochrome formatting bounds:
 
 ```c
-/* Step 1: include the OLED module header */
-#include "oled.h"   /* or whatever name the team uses */
+#define LV_COLOR_DEPTH 1
 
-/* Step 2: initialise in display_driver_init() */
-if (oled_init() != 0) { ... }
-
-/* Step 3: in oled_flush_cb(), replace the stub printf with */
-oled_flush(area->x1, area->y1, area->x2, area->y2, px_map);
-lv_display_flush_ready(disp);   /* always keep this line */
 ```
 
-The `px_map` buffer contains 16-bit RGB565 pixels (see `lv_conf.h`).
-If the OLED module expects a 1-bit packed buffer, convert here:
+Inside `oled_flush_cb`, map the incoming memory stream indices into the page-by-page serialization logic layout demanded by the SSD1306/SH1106 visual memory map:
 
 ```c
-// Convert RGB565 → 1-bit: any non-zero pixel = ON
-uint8_t oled_buf[DISPLAY_HOR_RES * DISPLAY_VER_RES / 8] = {0};
-int n = lv_area_get_width(area) * lv_area_get_height(area);
-uint16_t *src = (uint16_t *)px_map;
-for (int i = 0; i < n; i++) {
-    if (src[i]) oled_buf[i / 8] |= (1 << (i % 8));
-}
-oled_flush(area->x1, area->y1, area->x2, area->y2, oled_buf);
-```
+static void oled_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+{
+    int32_t w = lv_area_get_width(area);
+    int32_t h = lv_area_get_height(area);
 
-### 4.2 Touch input — `src/input_driver.c` (RISC-V section)
+    // Reconstruct monochrome bits into structural layout pages (8-pixel vertical blocks)
+    for (int32_t row = area->y1; row <= area->y2; row++) {
+        int page = row / 8;
+        int bit  = row % 8;
 
-Find `touch_read_cb` and `input_driver_init`:
+        // Implement low-level target hardware bus address configurations (I2C/SPI)
+        bsp_i2c_set_page_address(page);
+        bsp_i2c_set_column_address(area->x1);
 
-```c
-/* Step 1: include the touch module header */
-#include "touch.h"
-
-/* Step 2: initialise in input_driver_init() */
-if (touch_init() != 0) { ... }
-
-/* Step 3: in touch_read_cb(), replace the stub with */
-touch_point_t pt;
-bool pressed = touch_read(&pt);
-data->point.x = pt.x;
-data->point.y = pt.y;
-data->state   = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-```
-
-No changes needed to the gesture engine or anywhere else in the stack.
-
----
-
-## 5. Gesture engine reference (`src/gesture.h`)
-
-### Gesture types
-
-| Constant | Trigger |
-|---|---|
-| `GESTURE_CLICK` | Press + release, < 300 ms, drift < 10 px |
-| `GESTURE_DOUBLE_CLICK` | Two clicks within 400 ms |
-| `GESTURE_LONG_PRESS` | Held ≥ 600 ms with drift < 10 px |
-| `GESTURE_SWIPE_LEFT` | Horizontal drag > 20 px, rightward |
-| `GESTURE_SWIPE_RIGHT` | Horizontal drag > 20 px, leftward |
-| `GESTURE_SWIPE_UP` | Vertical drag > 20 px, upward |
-| `GESTURE_SWIPE_DOWN` | Vertical drag > 20 px, downward |
-
-### Tuning thresholds
-
-All thresholds are `#define` constants in `src/gesture.h`:
-
-| Constant | Default | Adjust when… |
-|---|---|---|
-| `GESTURE_CLICK_MAX_MS` | 300 ms | Taps are missed → increase |
-| `GESTURE_LONG_PRESS_MS` | 600 ms | Long press feels slow → decrease |
-| `GESTURE_DCLICK_WINDOW_MS` | 400 ms | Double-click too sensitive → decrease |
-| `GESTURE_CLICK_MAX_PX` | 10 px | Shaky panel misclassifies as swipe → increase |
-| `GESTURE_SWIPE_MIN_PX` | 20 px | Swipes not detected → decrease |
-
-After changing thresholds, re-run `cd app/tests && make` to verify all 29 tests still pass.
-
-### Receiving gesture events (application level)
-
-```c
-#include "src/input_driver.h"
-
-static void my_gesture_handler(const gesture_event_t *ev) {
-    switch (ev->type) {
-        case GESTURE_SWIPE_LEFT:   /* navigate to next screen */ break;
-        case GESTURE_SWIPE_RIGHT:  /* navigate to prev screen */ break;
-        case GESTURE_CLICK:        /* select focused element  */ break;
-        case GESTURE_DOUBLE_CLICK: /* wake / toggle backlight */ break;
-        case GESTURE_LONG_PRESS:   /* open context menu       */ break;
-        default: break;
+        for (int32_t col = area->x1; col <= area->x2; col++) {
+            // Read corresponding bit array values out of the processed LVGL map
+            uint8_t target_byte = calculate_mono_byte(px_map, col, row);
+            bsp_i2c_send_data_byte(target_byte);
+        }
     }
+
+    lv_display_flush_ready(disp); // CRITICAL: Relinquish layout canvas resource locks
 }
 
-// Register once after input_driver_init()
-input_driver_set_gesture_cb(my_gesture_handler);
 ```
 
----
+### 4.2 Touch Peripheral Input — `src/input_driver.c`
 
-## 6. Adding sensor data to the UI
-
-Other team members integrate by calling LVGL label update functions:
+Incorporate your specific screen driver initialization sequence inside `touch_read_cb`. Ensure that coordinate vectors are updated during **both** touch states (`PRESSED` and `RELEASED`) so that the drag acceleration deltas are computed cleanly by the underlying tracking matrix:
 
 ```c
-// From the RTC task:
-lv_label_set_text_fmt(lbl_time, "%02d:%02d:%02d", h, m, s);
+static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    int16_t x = 0, y = 0;
+    bool pressed = bsp_touch_hardware_poll(&x, &y);
 
-// From the HR/SpO2 task:
-lv_label_set_text_fmt(lbl_hr,   "HR: %d bpm", bpm);
-lv_label_set_text_fmt(lbl_spo2, "SpO2: %d%%",  spo2);
+    // Route coordinates to the custom gesture classification engine
+    gesture_feed(pressed, x, y);
 
-// From the step counter / activity task:
-lv_label_set_text_fmt(lbl_steps, "Steps: %lu", steps);
-lv_label_set_text_fmt(lbl_act,   "Activity: %s", name);
+    gesture_event_t ev;
+    if (gesture_poll(&ev) && g_gesture_cb != NULL) {
+        g_gesture_cb(&ev); // Notify root event layout interceptors inside main.c
+    }
+
+    // Forward telemetry captures back to LVGL v9 tracking registers
+    data->point.x = x;
+    data->point.y = y;
+    data->state   = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
+
 ```
 
-LVGL batches all updates and only redraws when `lv_timer_handler()` runs in
-the main loop — there is no risk of partial-update visual glitches.
+---
+
+## 5. Gesture Engine Reference (`src/gesture.h`)
+
+### Gesture Types
+
+| Identifier Token | Verification Threshold Properties |
+| --- | --- |
+| `GESTURE_CLICK` | Press + release action within `< 300 ms`, spatial movement `< 10 px`. |
+| `GESTURE_DOUBLE_CLICK` | Two successive clicks recorded within a `< 400 ms` window interval. |
+| `GESTURE_LONG_PRESS` | Position hold extended `≥ 600 ms` with spatial drift `< 10 px`. |
+| `GESTURE_SWIPE_LEFT` | Rapid directional swipe drag to the left matching `> 20 px`. |
+| `GESTURE_SWIPE_RIGHT` | Rapid directional swipe drag to the right matching `> 20 px`. |
+| `GESTURE_SWIPE_UP` | Rapid directional swipe drag upwards matching `> 20 px`. |
+| `GESTURE_SWIPE_DOWN` | Rapid directional swipe drag downwards matching `> 20 px`. |
+
+### Tuning Configuration Parameters
+
+Modify these macro definitions inside **`src/gesture.h`** to tune screen touch behaviors:
+
+```c
+#define GESTURE_CLICK_MAX_MS      300   // Increase if soft clicks are drop-failing
+#define GESTURE_LONG_PRESS_MS     600   // Lower if contextual popups feel laggy
+#define GESTURE_DCLICK_WINDOW_MS  400   // Calibrate double click detection windows
+#define GESTURE_CLICK_MAX_PX       10   // Increase if physical hand shaking triggers unintended swipes
+#define GESTURE_SWIPE_MIN_PX       20   // Lower if physical swipe bounds are too stiff
+
+```
 
 ---
 
-## 7. Platform selection reference
+## 6. Injecting Live Sensor Data to UI Display Layers
 
-| Flag | Set by | Effect |
-|---|---|---|
-| `PLATFORM_LINUX` | `make PLATFORM=linux` or `-DPLATFORM_LINUX` | SDL2 display + mouse input |
-| `PLATFORM_RISCV` | `make PLATFORM=riscv` or `-DPLATFORM_RISCV` | OLED flush_cb + touch read_cb |
+Because layouts are constructed in **EEZ Studio**, do not write manual string formatting code or directly mutate widget properties inside `main.c`. Instead, pass raw data directly to the functions inside `src/display_layer.c`. This preserves decoupling and lets the testing framework evaluate your visual boundaries.
 
-`lv_conf.h` reads these flags via the C preprocessor, so a single file
-configures both builds correctly.
+```c
+// Inside your main bare-metal while(1) polling loop framework inside main.c:
+
+// 1. Dispatch Real-Time Clock data to updating layers
+struct tm rtc_time;
+if (bsp_rtc_read_time(&rtc_time)) {
+    ui_update_clock_and_date(&rtc_time);
+    ui_update_notifications(&rtc_time);
+}
+
+// 2. Poll hardware sensors and dispatch clean metrics directly
+if (bsp_i2c_sensor_data_ready()) {
+    int active_bpm  = bsp_max30102_read_bpm();
+    int active_spo2 = bsp_max30102_read_spo2();
+    int total_steps = bsp_pedometer_get_steps();
+
+    // The display layer automatically addresses layout positioning, centering, and parsing string text fields
+    ui_update_health_metrics(active_bpm, active_spo2, total_steps);
+    ui_update_activity_state(active_bpm);
+}
+
+```
 
 ---
 
-## 8. Known limitations / future work
+## 7. Platform Compilation Reference Flags
 
-| Item | Status | Notes |
-|---|---|---|
-| Tick source (RISC-V) | TODO | Replace busy-loop in `main.c` with a 1 ms hardware timer ISR calling `lv_tick_inc(1)` |
-| OLED flush_cb | Stub | Connect ICDeC OLED module (Section 4.1) |
-| Touch read_cb | Stub | Connect ICDeC touch module (Section 4.2) |
-| gesture_tick_ms (RISC-V) | g_tick_ms | Should use BSP timer when available |
-| Multi-touch | Not supported | Only single-finger gestures |
-| Screen brightness | Not implemented | Wire OLED brightness to a GPIO/PWM line |
+| Target Preprocessor Macro | Invocation Instruction | System Architectural Consequence |
+| --- | --- | --- |
+| `PLATFORM_LINUX` | `make PLATFORM=linux` | Links SDL2 display window and emulated mouse pointer parameters. |
+| `PLATFORM_RISCV` | `make PLATFORM=riscv` | Compiles targeting NusaCore SoC with custom hardware configuration initialization files. |
+| `UNIT_TESTING` | Handled internally in `tests/` | Circumvents heavy dependencies to allow mock-driven compilation on Linux hosts. |
+
+---
+
+## 8. Known Limitations / Engineering Backlog
+
+| Operational Target Component | Current Project Status | Resolution & Engineering Requirement Notes |
+| --- | --- | --- |
+| Tick Source (RISC-V) | **PENDING** | Replace software busy loop delay steps inside `main.c` with a true 1 ms hardware Timer ISR calling `lv_tick_inc(1)`. |
+| Screen Refresh Animations | **DISABLED** | Animations should remain disabled (`LV_ANIM_OFF`) on monochrome I2C configurations to prevent bus bandwidth bottlenecks. |
+| Multi-Touch Engine | **UNSUPPORTED** | Gesture processing engine architecture is restricted to single-finger vector changes. |
+| Screen Brightness Control | **PENDING** | Connect display hardware power rails to an available PWM line on the NusaCore SoC interface to handle brightness scaling. |
