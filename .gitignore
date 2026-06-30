@@ -22,3 +22,10 @@ libraries/sensors/afe4400/test_soft
 
 libraries/sensors/DS1307/build/
 libraries/sensors/DS3231/test_host/
+
+libraries/sensors/l3g4200d/test/build/
+libraries/sensors/mpu6050/test/build/
+
+libraries/sensor/max30102/test_soft
+libraries/sensor/max30102/setup_env.sh
+libraries/sensor/max30102/build/
