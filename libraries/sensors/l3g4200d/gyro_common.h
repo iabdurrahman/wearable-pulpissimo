@@ -105,6 +105,16 @@ typedef enum {
 /** MPU-6050 alternative I2C slave address (AD0 pin HIGH) — 7-bit address */
 #define MPU6050_I2C_ADDR_ALT      0x69
 
+/* ============================================================================
+ * Timeout / Retry Configuration
+ * ============================================================================ */
+
+#define GYRO_I2C_TIMEOUT_US       5000    /**< I2C hardware timeout (microseconds) */
+#define GYRO_I2C_MAX_RETRIES      3       /**< Max retries per I2C operation */
+#define GYRO_BOOT_DELAY_CYCLES    50000   /**< Software delay for sensor boot (~5-10ms) */
+#define GYRO_RESET_DELAY_CYCLES   100000  /**< Software delay for device reset (~100ms) */
+#define GYRO_WAKEUP_DELAY_CYCLES  50000   /**< Software delay for wake-up stabilization */
+
 #ifdef __cplusplus
 }
 #endif

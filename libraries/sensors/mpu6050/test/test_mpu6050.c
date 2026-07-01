@@ -50,7 +50,9 @@ int main()
 
     /* ---- Test 2: Initialization ---- */
     printf("[TEST 2] Initializing MPU-6050...\n");
+    printf("  (addr=0x%02X, will timeout if sensor not responding)\n", cfg.i2c_addr);
     status = mpu6050_init(&cfg);
+    printf("  mpu6050_init returned: %d\n", status);
     if (status == GYRO_OK) {
         printf("  PASS: Sensor initialized successfully\n");
         pass_count++;

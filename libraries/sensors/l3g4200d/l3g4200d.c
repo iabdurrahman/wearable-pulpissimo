@@ -24,14 +24,17 @@ static float l3g4200d_get_sensitivity(l3g4200d_range_t range)
     }
 }
 
-//Low-Level I2C Helpers
+//Low-Level I2C Helpers (with timeout + retry)
 
 /**
  * @brief Write a single byte to a register on the L3G4200D.
  *
+ * Includes retry mechanism with timeout detection to prevent
+ * infinite blocking when the sensor does not respond.
+ *
  * @param reg   Register address.
  * @param value Byte value to write.
- * @return GYRO_OK on success, GYRO_ERR_I2C on failure.
+ * @return GYRO_OK on success, GYRO_ERR_TIMEOUT after all retries exhausted.
  */
 static gyro_status_t l3g4200d_write_reg(uint8_t reg, uint8_t value)
 {
@@ -39,17 +42,38 @@ static gyro_status_t l3g4200d_write_reg(uint8_t reg, uint8_t value)
     data[0] = reg;
     data[1] = value;
 
-    int ret = i2c_write(l3g4200d_state.i2c, data, 2, 1);
-    return (ret == 0) ? GYRO_OK : GYRO_ERR_I2C;
+    for (int retry = 0; retry < GYRO_I2C_MAX_RETRIES; retry++) {
+        int ret = i2c_write(l3g4200d_state.i2c, data, 2, 1);
+
+        /* Check if I2C hardware timeout occurred */
+        if (i2c_managetimeoutflag(true)) {
+            printf("[L3G4200D] I2C write timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        if (ret == 0) {
+            return GYRO_OK;
+        }
+
+        printf("[L3G4200D] I2C write error (reg=0x%02X, ret=%d, retry=%d/%d)\n",
+               reg, ret, retry + 1, GYRO_I2C_MAX_RETRIES);
+    }
+
+    return GYRO_ERR_TIMEOUT;
 }
 
 /**
  * @brief Read one or more bytes from a register on the L3G4200D.
  *
+ * Includes retry mechanism with timeout detection. For multi-byte
+ * reads, sets the MSB of the register address to enable auto-increment
+ * (L3G4200D datasheet requirement).
+ *
  * @param reg    Starting register address.
  * @param buffer Pointer to buffer for received data.
  * @param len    Number of bytes to read.
- * @return GYRO_OK on success, GYRO_ERR_I2C on failure.
+ * @return GYRO_OK on success, GYRO_ERR_TIMEOUT after all retries exhausted.
  */
 static gyro_status_t l3g4200d_read_reg(uint8_t reg, uint8_t *buffer, int len)
 {
@@ -65,19 +89,36 @@ static gyro_status_t l3g4200d_read_reg(uint8_t reg, uint8_t *buffer, int len)
         reg_addr = reg;
     }
 
-    /* Write register address (no STOP, so the sensor keeps the bus) */
-    int ret = i2c_write(l3g4200d_state.i2c, &reg_addr, 1, 0);
-    if (ret != 0) {
-        return GYRO_ERR_I2C;
+    for (int retry = 0; retry < GYRO_I2C_MAX_RETRIES; retry++) {
+        /* Write register address (no STOP, so the sensor keeps the bus) */
+        int ret = i2c_write(l3g4200d_state.i2c, &reg_addr, 1, 0);
+
+        if (i2c_managetimeoutflag(true)) {
+            printf("[L3G4200D] I2C addr write timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        if (ret != 0) {
+            printf("[L3G4200D] I2C addr write error (reg=0x%02X, ret=%d, retry=%d/%d)\n",
+                   reg, ret, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        /* Read data bytes */
+        ret = i2c_read(l3g4200d_state.i2c, buffer, len, 0);
+
+        if (i2c_managetimeoutflag(true)) {
+            printf("[L3G4200D] I2C read timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        /* Success */
+        return GYRO_OK;
     }
 
-    /* Read data bytes */
-    ret = i2c_read(l3g4200d_state.i2c, buffer, len, 0);
-    if (ret != len) {
-        return GYRO_ERR_I2C;
-    }
-
-    return GYRO_OK;
+    return GYRO_ERR_TIMEOUT;
 }
 
 //Public API Implementation
@@ -117,19 +158,29 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
         return GYRO_ERR_I2C;
     }
 
-    /* Set I2C timeout (5000 µs) */
-    i2c_settimeout(5000, 1);
+    /* Set I2C timeout */
+    i2c_settimeout(GYRO_I2C_TIMEOUT_US, 1);
 
     /* Store configuration */
     l3g4200d_state.i2c_addr   = cfg->i2c_addr;
     l3g4200d_state.range      = cfg->range;
     l3g4200d_state.sensitivity = l3g4200d_get_sensitivity(cfg->range);
 
+    /*
+     * Boot delay: L3G4200D needs ~5-10ms after power-up to load
+     * trimming parameters from internal flash (AN3393).
+     * Without this delay, register reads may fail or return garbage.
+     */
+    printf("[L3G4200D] Waiting for sensor boot...\n");
+    for (volatile int i = 0; i < GYRO_BOOT_DELAY_CYCLES; i++);
+
     /* Verify WHO_AM_I */
+    printf("[L3G4200D] Reading WHO_AM_I register...\n");
     status = l3g4200d_read_reg(L3G4200D_REG_WHO_AM_I, &who_am_i, 1);
     if (status != GYRO_OK) {
+        printf("[L3G4200D] WHO_AM_I read failed (err=%d)\n", status);
         i2c_close(l3g4200d_state.i2c);
-        return GYRO_ERR_I2C;
+        return status;
     }
 
     if (who_am_i != L3G4200D_WHO_AM_I_VALUE) {
@@ -145,11 +196,13 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
      * - Normal mode (PD=1)
      * - All axes enabled (X, Y, Z)
      */
+    printf("[L3G4200D] Configuring CTRL_REG1...\n");
     status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG1,
                                 L3G4200D_ODR_100HZ_BW12P5 |
                                 L3G4200D_NORMAL_MODE |
                                 L3G4200D_ALL_AXES_ENABLE);
     if (status != GYRO_OK) {
+        printf("[L3G4200D] CTRL_REG1 write failed (err=%d)\n", status);
         i2c_close(l3g4200d_state.i2c);
         return GYRO_ERR_CONFIG;
     }
@@ -160,9 +213,11 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
      * - BLE = 0 (LSB at lower address)
      * - FS = full-scale selection from config
      */
+    printf("[L3G4200D] Configuring CTRL_REG4...\n");
     status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG4,
                                 L3G4200D_BDU_BLOCKED | cfg->range);
     if (status != GYRO_OK) {
+        printf("[L3G4200D] CTRL_REG4 write failed (err=%d)\n", status);
         i2c_close(l3g4200d_state.i2c);
         return GYRO_ERR_CONFIG;
     }

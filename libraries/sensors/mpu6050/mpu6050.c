@@ -29,14 +29,17 @@ static float mpu6050_get_sensitivity(mpu6050_gyro_range_t range)
     }
 }
 
-//Low-Level I2C Helpers
+//Low-Level I2C Helpers (with timeout + retry)
 
 /**
  * @brief Write a single byte to a register on the MPU-6050.
  *
+ * Includes retry mechanism with timeout detection to prevent
+ * infinite blocking when the sensor does not respond.
+ *
  * @param reg   Register address.
  * @param value Byte value to write.
- * @return GYRO_OK on success, GYRO_ERR_I2C on failure.
+ * @return GYRO_OK on success, GYRO_ERR_TIMEOUT after all retries exhausted.
  */
 static gyro_status_t mpu6050_write_reg(uint8_t reg, uint8_t value)
 {
@@ -44,8 +47,25 @@ static gyro_status_t mpu6050_write_reg(uint8_t reg, uint8_t value)
     data[0] = reg;
     data[1] = value;
 
-    int ret = i2c_write(mpu6050_state.i2c, data, 2, 1);
-    return (ret == 0) ? GYRO_OK : GYRO_ERR_I2C;
+    for (int retry = 0; retry < GYRO_I2C_MAX_RETRIES; retry++) {
+        int ret = i2c_write(mpu6050_state.i2c, data, 2, 1);
+
+        /* Check if I2C hardware timeout occurred */
+        if (i2c_managetimeoutflag(true)) {
+            printf("[MPU6050] I2C write timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        if (ret == 0) {
+            return GYRO_OK;
+        }
+
+        printf("[MPU6050] I2C write error (reg=0x%02X, ret=%d, retry=%d/%d)\n",
+               reg, ret, retry + 1, GYRO_I2C_MAX_RETRIES);
+    }
+
+    return GYRO_ERR_TIMEOUT;
 }
 
 /**
@@ -53,29 +73,47 @@ static gyro_status_t mpu6050_write_reg(uint8_t reg, uint8_t value)
  *
  * The MPU-6050 auto-increments the register address on sequential reads,
  * so no special bit manipulation is needed (unlike L3G4200D).
+ * Includes retry mechanism with timeout detection.
  *
  * @param reg    Starting register address.
  * @param buffer Pointer to buffer for received data.
  * @param len    Number of bytes to read.
- * @return GYRO_OK on success, GYRO_ERR_I2C on failure.
+ * @return GYRO_OK on success, GYRO_ERR_TIMEOUT after all retries exhausted.
  */
 static gyro_status_t mpu6050_read_reg(uint8_t reg, uint8_t *buffer, int len)
 {
     unsigned char reg_addr = reg;
 
-    /* Write register address (no STOP, repeated start) */
-    int ret = i2c_write(mpu6050_state.i2c, &reg_addr, 1, 0);
-    if (ret != 0) {
-        return GYRO_ERR_I2C;
+    for (int retry = 0; retry < GYRO_I2C_MAX_RETRIES; retry++) {
+        /* Write register address (no STOP, repeated start) */
+        int ret = i2c_write(mpu6050_state.i2c, &reg_addr, 1, 0);
+
+        if (i2c_managetimeoutflag(true)) {
+            printf("[MPU6050] I2C addr write timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        if (ret != 0) {
+            printf("[MPU6050] I2C addr write error (reg=0x%02X, ret=%d, retry=%d/%d)\n",
+                   reg, ret, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        /* Read data bytes */
+        ret = i2c_read(mpu6050_state.i2c, buffer, len, 0);
+
+        if (i2c_managetimeoutflag(true)) {
+            printf("[MPU6050] I2C read timeout (reg=0x%02X, retry=%d/%d)\n",
+                   reg, retry + 1, GYRO_I2C_MAX_RETRIES);
+            continue;
+        }
+
+        /* Success */
+        return GYRO_OK;
     }
 
-    /* Read data bytes */
-    ret = i2c_read(mpu6050_state.i2c, buffer, len, 0);
-    if (ret != len) {
-        return GYRO_ERR_I2C;
-    }
-
-    return GYRO_OK;
+    return GYRO_ERR_TIMEOUT;
 }
 
 //Public API Implementation
@@ -117,8 +155,8 @@ gyro_status_t mpu6050_init(const mpu6050_config_t *cfg)
         return GYRO_ERR_I2C;
     }
 
-    /* Set I2C timeout (5000 µs) */
-    i2c_settimeout(5000, 1);
+    /* Set I2C timeout */
+    i2c_settimeout(GYRO_I2C_TIMEOUT_US, 1);
 
     /* Store configuration */
     mpu6050_state.i2c_addr    = cfg->i2c_addr;
@@ -126,23 +164,44 @@ gyro_status_t mpu6050_init(const mpu6050_config_t *cfg)
     mpu6050_state.sensitivity = mpu6050_get_sensitivity(cfg->gyro_range);
 
     /*
-     * Wake up the MPU-6050 from sleep mode.
-     * PWR_MGMT_1: clear SLEEP bit, select internal 8MHz clock.
+     * Step 1: Device Reset
+     * Send DEVICE_RESET bit (0x80) to PWR_MGMT_1 to reset all internal
+     * registers to their default values. This ensures a clean state
+     * regardless of previous sensor configuration.
      */
+    printf("[MPU6050] Sending device reset...\n");
+    status = mpu6050_write_reg(MPU6050_REG_PWR_MGMT_1, MPU6050_PWR1_DEVICE_RESET);
+    if (status != GYRO_OK) {
+        printf("[MPU6050] WARNING: Device reset write failed (err=%d), continuing...\n", status);
+        /* Don't fail here — sensor may already be in a good state */
+    }
+
+    /* Wait for reset to complete (~100ms per datasheet) */
+    for (volatile int i = 0; i < GYRO_RESET_DELAY_CYCLES; i++);
+
+    /*
+     * Step 2: Wake up from sleep mode
+     * PWR_MGMT_1: clear SLEEP bit, select internal 8MHz clock.
+     * After reset, the device defaults to sleep mode — we must clear it.
+     */
+    printf("[MPU6050] Waking up from sleep mode...\n");
     status = mpu6050_write_reg(MPU6050_REG_PWR_MGMT_1, MPU6050_CLK_INTERNAL_8MHZ);
     if (status != GYRO_OK) {
+        printf("[MPU6050] Wake-up failed (err=%d)\n", status);
         i2c_close(mpu6050_state.i2c);
         return GYRO_ERR_CONFIG;
     }
 
-    /* Small delay after wake-up to let the sensor stabilize */
-    for (volatile int i = 0; i < 10000; i++);
+    /* Stabilization delay after wake-up */
+    for (volatile int i = 0; i < GYRO_WAKEUP_DELAY_CYCLES; i++);
 
-    /* Verify WHO_AM_I */
+    /* Step 3: Verify WHO_AM_I */
+    printf("[MPU6050] Reading WHO_AM_I register...\n");
     status = mpu6050_read_reg(MPU6050_REG_WHO_AM_I, &who_am_i, 1);
     if (status != GYRO_OK) {
+        printf("[MPU6050] WHO_AM_I read failed (err=%d)\n", status);
         i2c_close(mpu6050_state.i2c);
-        return GYRO_ERR_I2C;
+        return status;
     }
 
     if (who_am_i != MPU6050_WHO_AM_I_VALUE) {
@@ -153,33 +212,39 @@ gyro_status_t mpu6050_init(const mpu6050_config_t *cfg)
     }
 
     /*
-     * Configure sample rate divider:
+     * Step 4: Configure sample rate divider
      * Sample Rate = Gyroscope Output Rate / (1 + SMPLRT_DIV)
      * With DLPF disabled: Gyroscope Output Rate = 8kHz
      * With DLPF enabled:  Gyroscope Output Rate = 1kHz
      */
+    printf("[MPU6050] Configuring SMPLRT_DIV...\n");
     status = mpu6050_write_reg(MPU6050_REG_SMPLRT_DIV, cfg->smplrt_div);
     if (status != GYRO_OK) {
+        printf("[MPU6050] SMPLRT_DIV write failed (err=%d)\n", status);
         i2c_close(mpu6050_state.i2c);
         return GYRO_ERR_CONFIG;
     }
 
     /*
-     * Configure DLPF (Digital Low Pass Filter):
+     * Step 5: Configure DLPF (Digital Low Pass Filter)
      * CONFIG register bits [2:0] = DLPF_CFG
      */
+    printf("[MPU6050] Configuring DLPF...\n");
     status = mpu6050_write_reg(MPU6050_REG_CONFIG, cfg->dlpf_cfg & 0x07);
     if (status != GYRO_OK) {
+        printf("[MPU6050] CONFIG write failed (err=%d)\n", status);
         i2c_close(mpu6050_state.i2c);
         return GYRO_ERR_CONFIG;
     }
 
     /*
-     * Configure gyroscope full-scale range:
+     * Step 6: Configure gyroscope full-scale range
      * GYRO_CONFIG register bits [4:3] = FS_SEL
      */
+    printf("[MPU6050] Configuring GYRO_CONFIG...\n");
     status = mpu6050_write_reg(MPU6050_REG_GYRO_CONFIG, cfg->gyro_range);
     if (status != GYRO_OK) {
+        printf("[MPU6050] GYRO_CONFIG write failed (err=%d)\n", status);
         i2c_close(mpu6050_state.i2c);
         return GYRO_ERR_CONFIG;
     }
