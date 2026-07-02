@@ -14,11 +14,12 @@ Repositori ini berisi implementasi *driver bare-metal* bahasa C untuk membaca da
 ## Penjelasan Logika 
 
 ### 1. Address Handling (Chip-Select)
-Alamat I2C DS1307 adalah `0x68` (7-bit). Dalam format 8-bit yang digunakan oleh library PULP I2C:
-- **Write address:** `0xD0` (0x68 << 1 | 0)
-- **Read address:** `0xD1` (0x68 << 1 | 1)
+Alamat I2C DS1307 dari datasheet adalah `0x68` (7-bit, binary: `1101000`). Driver I2C PULP Runtime membutuhkan format 8-bit, sehingga address di-shift kiri 1 bit saat inisialisasi:
+- **Chip-select (cs):** `0x68 << 1` = `0xD0`
+- **Write address (otomatis):** `0xD0` (bit-0 = 0)
+- **Read address (otomatis):** `0xD0 | 0x1` = `0xD1` (bit-0 = 1)
 
-Address di-set melalui field `dev->cs` saat inisialisasi. Library `i2c.c` secara otomatis mengirim `dev->cs` sebagai address byte setelah START condition, dan melakukan OR dengan `0x1` saat operasi read. **Address tidak boleh dimasukkan ke dalam buffer data.**
+Address di-set melalui `dev->cs = DS1307_ADDR << 1` saat inisialisasi. Library `i2c.c` secara otomatis mengirim `dev->cs` sebagai address byte setelah START condition, dan melakukan OR dengan `0x1` saat operasi read. **Address tidak boleh dimasukkan ke dalam buffer data.**
 
 ### 2. Konversi BCD (Binary-Coded Decimal)
 Sensor DS1307 hanya menerima dan mengirim data dalam format BCD. Agar API lebih ramah digunakan (*user-friendly*), struktur `rtc_time_t` sengaja dirancang menggunakan nilai **Desimal murni (0-99)**. Driver ini secara otomatis melakukan konversi `dec_to_bcd` saat menulis ke sensor (*set time*), dan `bcd_to_dec` saat membaca dari sensor (*get time*).
@@ -69,7 +70,7 @@ typedef struct {
 ### Fungsi
 
 #### `int rtc_init(i2c_dev_t *dev_conf, i2c_t **i2c_handle)`
-Menginisialisasi hardware I2C Bus 0 untuk komunikasi dengan DS1307. Mengatur chip-select ke address `0xD0` dan baudrate ke 100 kHz.
+Menginisialisasi hardware I2C Bus 0 untuk komunikasi dengan DS1307. Mengatur chip-select ke address `0x68 << 1` (7-bit di-shift ke 8-bit) dan baudrate ke 100 kHz.
 
 | Parameter | Deskripsi |
 |---|---|

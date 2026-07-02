@@ -1,10 +1,8 @@
 #include "pulp.h"
 #include "rtc.h"
 
-// DS1307 I2C Address (8-bit format, sudah di-shift kiri)
-// Library i2c.c akan otomatis OR dengan bit R/W (0x1) saat read
-// Ref datasheet: 7-bit address = 0x68, 8-bit write = 0xD0, 8-bit read = 0xD1
-#define DS1307_ADDR        0xD0
+
+#define DS1307_ADDR        0x68  // 7-bit address DS1307 (datasheet: binary 1101000, write=0xD0, read=0xD1)
 #define DS1307_REG_SECONDS 0x00 
 
 // Decimal to BCD
@@ -24,7 +22,7 @@ int rtc_init(i2c_dev_t *dev_conf, i2c_t **i2c_handle) {
 
     i2c_dev_init(dev_conf);
     dev_conf->id = 0; 
-    dev_conf->cs = DS1307_ADDR;     // FIX: Set chip-select ke address DS1307 (0xD0)
+    dev_conf->cs = DS1307_ADDR << 1; // Shift ke 8-bit karena driver I2C PULP butuh format 8-bit
     dev_conf->max_baudrate = 100000; 
 
     *i2c_handle = i2c_open(dev_conf);
@@ -74,7 +72,7 @@ int rtc_set_time(i2c_t *i2c_handle, rtc_time_t *time) {
     tx_data[7] = dec_to_bcd(time->year);
 
     // Kirim data ke DS1307 lewat I2C
-    // Library akan otomatis: [START][0xD0(cs)][tx_data[0..7]][STOP]
+    // Library akan otomatis: [START][addr_write][tx_data[0..7]][STOP]
     if (i2c_write(i2c_handle, tx_data, 8, 1) != 0) {
         return RTC_ERR_I2C_WRITE_SET;
     }
@@ -90,7 +88,7 @@ int rtc_get_time(i2c_t *i2c_handle, rtc_time_t *time) {
     unsigned char rx_data[7];
 
     // Tahap 1: Set pointer register ke 0x00 (Register Seconds)
-    // Library akan otomatis: [START][0xD0(cs)][0x00]  (tanpa STOP → repeated start)
+    // Library akan otomatis: [START][addr_write][0x00]  (tanpa STOP → repeated start)
     // FIX: Hanya kirim 1 byte (register pointer), BUKAN address + pointer
     tx_data[0] = DS1307_REG_SECONDS; 
     if (i2c_write(i2c_handle, tx_data, 1, 0) != 0) {
@@ -98,7 +96,7 @@ int rtc_get_time(i2c_t *i2c_handle, rtc_time_t *time) {
     }
 
     // Tahap 2: Burst read 7 byte dari register 0x00-0x06
-    // Library i2c_read() akan otomatis: [START][0xD0|0x1=0xD1][RD_ACK x6][RD_NACK][STOP]
+    // Library i2c_read() akan otomatis: [START][addr_read][RD_ACK x6][RD_NACK][STOP]
     //
     // FIX: i2c_read() return value convention:
     //   - Sukses  = return jumlah byte yang dibaca (7)

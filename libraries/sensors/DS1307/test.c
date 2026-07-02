@@ -93,14 +93,38 @@ int main(void) {
     
     rtc_time_t waktu_baca = {0};
     int reg_errors;  // counter register error per iterasi
+
+    // Timing: ukur presisi delay menggunakan hardware timer
+    long t_now, t_prev = 0;
+    long dt_us, miss_us;
     
     for (int i = 0; i < 10; i++) {
+        // Catat waktu sebelum baca I2C
+        t_now = pos_tick_get_counter_us();
+
         rc = rtc_get_time(rtc_handle, &waktu_baca);
         if (rc == RTC_OK) {
-            printf("[%d] %02d:%02d:%02d | %02d/%02d/20%02d\n",
-                   i+1,
-                   waktu_baca.hours, waktu_baca.minutes, waktu_baca.seconds,
-                   waktu_baca.date, waktu_baca.month, waktu_baca.year);
+            // Print waktu RTC
+            if (i == 0) {
+                // Iterasi pertama: belum ada delta
+                printf("[%02d] %02d:%02d:%02d | %02d/%02d/20%02d\n\r",
+                       i+1,
+                       waktu_baca.hours, waktu_baca.minutes, waktu_baca.seconds,
+                       waktu_baca.date, waktu_baca.month, waktu_baca.year);
+            } else {
+                // Iterasi 2+: hitung delta dan miss dari ideal 1.000.000 us
+                dt_us = t_now - t_prev;
+                miss_us = dt_us - 1000000;
+                long miss_ms = miss_us / 1000;
+                printf("[%02d] %02d:%02d:%02d | %02d/%02d/20%02d | dt:%ldus miss:%c%ldus (%c%ldms)\n\r",
+                       i+1,
+                       waktu_baca.hours, waktu_baca.minutes, waktu_baca.seconds,
+                       waktu_baca.date, waktu_baca.month, waktu_baca.year,
+                       dt_us,
+                       (miss_us >= 0) ? '+' : '-', (miss_us >= 0) ? miss_us : -miss_us,
+                       (miss_ms >= 0) ? '+' : '-', (miss_ms >= 0) ? miss_ms : -miss_ms);
+            }
+            t_prev = t_now;
 
             // ===== Validasi per-register (cek range sesuai datasheet DS1307) =====
             reg_errors = 0;
@@ -139,12 +163,13 @@ int main(void) {
             }
 
         } else {
-            printf("[%d] ERROR reading RTC! (code: %d)\n\r", i+1, rc);
+            printf("[%02d] ERROR reading RTC! (code: %d)\n\r", i+1, rc);
             print_rtc_error(rc);
+            t_prev = t_now;
         }
 
-        // Delay ~1 detik agar DS1307 sempat update registernya
-        for (volatile int d = 0; d < 1000000; d++);
+        // Delay akurat 1 detik menggunakan hardware timer PULP
+        pos_delay_busy_ms(1000);
     }
 
     printf("\nTest completed successfully!\n\r");

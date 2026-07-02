@@ -36,8 +36,8 @@ void sim_rtc_write(uint8_t *data, int len) {
         printf("    Byte %d: 0x%02x\n", i, data[i]);
     }
     
-    // Asumsi format: data[0]=0xD0 (addr), data[1]=0x00 (reg), data[2..8]=values
-    if (len == 9 && data[0] == 0xD0 && data[1] == 0x00) {
+    // Asumsi format: data[0]=addr_write (0x68<<1=0xD0), data[1]=0x00 (reg), data[2..8]=values
+    if (len == 9 && data[0] == (0x68 << 1) && data[1] == 0x00) {
         // Simpan 7 byte register
         for (int i = 0; i < 7; i++) {
             rtc_sim.registers[i] = data[i + 2];
@@ -207,7 +207,7 @@ void test_rtc_simulator(void) {
     // Step 2: Convert ke BCD
     printf("--- STEP 2: Convert to BCD Format ---\n");
     uint8_t tx_data[9];
-    tx_data[0] = 0xD0;
+    tx_data[0] = 0x68 << 1;  // 7-bit address DS1307 di-shift ke 8-bit (= 0xD0)
     tx_data[1] = 0x00;
     tx_data[2] = dec_to_bcd(waktu_awal.seconds) & 0x7F;
     tx_data[3] = dec_to_bcd(waktu_awal.minutes);
