@@ -3,22 +3,16 @@
  *
  * Test Application: L3G4200D Gyroscope Sensor
  *
- * This test application initializes the L3G4200D sensor, verifies
- * communication via WHO_AM_I, and continuously reads gyroscope data
- * printing both raw values and degrees per second (°/s).
- *
- * Features:
- *   - Auto-detects I2C address (tries 0x68 then 0x69)
- *   - Timeout protection (won't hang if sensor not connected)
- *
- * Usage:
- *   make all SENSOR=l3g4200d
- *   make run SENSOR=l3g4200d platform=fpga
+ * CATATAN DIAGNOSTIK: setvbuf/_IONBF DAN fflush() tidak didukung
+ * minimal libc pulp-runtime (keduanya gagal link). Ini artinya printf
+ * di sistem ini sudah unbuffered secara inheren -- setiap karakter
+ * langsung dikirim ke UART, tidak perlu di-flush manual.
  */
 
 #include <stdio.h>
 #include "pulp.h"
 #include "l3g4200d.h"
+#include "l3g4200d_guard.h"
 
 #define NUM_READINGS 20   /* Number of gyro readings to take */
 
@@ -37,6 +31,17 @@ int main()
     printf(" ICDeC PULPissimo FPGA Board\n");
     printf("========================================\n\n");
 
+    /* --- TAMBAHAN: selftest guard timer dulu, TANPA I2C sama sekali --- */
+    printf("[PRE-TEST] Menguji guard timer secara terisolasi...\n");
+    int guard_ok = l3g4200d_guard_selftest();
+    if (!guard_ok) {
+        printf("[PRE-TEST] Guard timer TIDAK berfungsi. Perbaiki ini dulu\n");
+        printf("[PRE-TEST] sebelum lanjut ke test I2C sensor.\n");
+        return -1;
+    }
+    printf("[PRE-TEST] Guard timer OK, lanjut ke test sensor.\n\n");
+    /* --- akhir tambahan --- */
+
     /* ---- Test 1: Default Configuration ---- */
     printf("[TEST 1] Loading default configuration...\n");
     status = l3g4200d_default_config(&cfg);
@@ -54,16 +59,16 @@ int main()
     /* ---- Test 2: Initialization (auto-detect address) ---- */
     printf("[TEST 2] Initializing L3G4200D...\n");
 
-    /* Try default address first (0x68) */
+    /* Try default address first (0x69) */
     printf("  Trying addr=0x%02X...\n", cfg.i2c_addr);
-    status = l3g4200d_init(&cfg);
+    status = l3g4200d_init_guarded(&cfg);
 
-    /* If default fails, try alternate address (0x69) */
+    /* If default fails, try alternate address (0x68) */
     if (status != GYRO_OK) {
         printf("  addr=0x%02X failed (err=%d), trying 0x%02X...\n",
                cfg.i2c_addr, status, L3G4200D_I2C_ADDR_ALT);
         cfg.i2c_addr = L3G4200D_I2C_ADDR_ALT;
-        status = l3g4200d_init(&cfg);
+        status = l3g4200d_init_guarded(&cfg);
     }
 
     printf("  l3g4200d_init returned: %d\n", status);
@@ -109,7 +114,6 @@ int main()
             printf("  %-6d  ERROR (err=%d)\n", i + 1, status);
             raw_pass = 0;
         }
-        /* Simple delay between readings */
         for (volatile int d = 0; d < 50000; d++);
     }
     if (raw_pass) {
@@ -130,7 +134,6 @@ int main()
     for (int i = 0; i < NUM_READINGS; i++) {
         status = l3g4200d_read_dps(&dps);
         if (status == GYRO_OK) {
-            /* Using integer printing since printf float may not be available */
             printf("  %-6d  %6d.%02d  %6d.%02d  %6d.%02d\n",
                    i + 1,
                    (int)dps.x, (int)(dps.x * 100) % 100,
@@ -158,7 +161,6 @@ int main()
         printf("  PASS: Range changed to ±500 dps\n");
         pass_count++;
 
-        /* Read one sample with new range */
         status = l3g4200d_read_dps(&dps);
         if (status == GYRO_OK) {
             printf("  Verification read: X=%d.%02d, Y=%d.%02d, Z=%d.%02d °/s\n",
@@ -188,9 +190,9 @@ int main()
     printf("========================================\n");
     printf(" RESULTS: %d PASSED, %d FAILED\n", pass_count, fail_count);
     if (fail_count == 0) {
-        printf(" STATUS: ALL TESTS PASSED ✓\n");
+        printf(" STATUS: ALL TESTS PASSED\n");
     } else {
-        printf(" STATUS: SOME TESTS FAILED ✗\n");
+        printf(" STATUS: SOME TESTS FAILED\n");
     }
     printf("========================================\n");
 

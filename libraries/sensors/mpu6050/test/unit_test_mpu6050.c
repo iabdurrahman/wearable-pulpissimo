@@ -137,7 +137,7 @@ void test_01_default_config(void) {
     mpu6050_config_t cfg;
     gyro_status_t s = mpu6050_default_config(&cfg);
     ASSERT_EQ("return GYRO_OK", s, GYRO_OK);
-    ASSERT_EQ("i2c_addr = 0x68", cfg.i2c_addr, 0x68);
+    ASSERT_EQ("i2c_addr = 0x69", cfg.i2c_addr, 0x69);
     ASSERT_EQ("i2c_id = 0", cfg.i2c_id, 0);
     ASSERT_EQ("i2c_freq = 100000", cfg.i2c_freq, 100000);
     ASSERT_EQ("gyro_range = 250DPS (0x00)", cfg.gyro_range, MPU6050_GYRO_RANGE_250DPS);
@@ -156,7 +156,7 @@ void test_03_init_i2c_address(void) {
     mpu6050_config_t cfg;
     mpu6050_default_config(&cfg);
     mpu6050_init(&cfg);
-    ASSERT_EQ("cs = 0x68 (7-bit, no shift)", (uint8_t)mock_dev_cs, 0x68);
+    ASSERT_EQ("cs = 0xD2 (8-bit, left-shifted 0x69)", (uint8_t)mock_dev_cs, 0xD2);
     ASSERT_EQ("i2c_id = 0", mock_dev_id, 0);
 }
 

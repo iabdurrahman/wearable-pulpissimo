@@ -166,7 +166,7 @@ void test_01_default_config(void) {
     gyro_status_t s = l3g4200d_default_config(&cfg);
 
     ASSERT_EQ("return GYRO_OK", s, GYRO_OK);
-    ASSERT_EQ("i2c_addr = 0x68", cfg.i2c_addr, 0x68);
+    ASSERT_EQ("i2c_addr = 0x69", cfg.i2c_addr, 0x69);
     ASSERT_EQ("i2c_id = 0", cfg.i2c_id, 0);
     ASSERT_EQ("i2c_freq = 100000", cfg.i2c_freq, 100000);
     ASSERT_EQ("range = 250DPS (0x00)", cfg.range, L3G4200D_RANGE_250DPS);
@@ -186,10 +186,11 @@ void test_03_init_i2c_address(void) {
     l3g4200d_init(&cfg);
 
     /*
-     * PULPissimo i2c_open expects 7-bit address directly in .cs.
-     * The runtime handles R/W bit internally (consistent with MAX30102 driver).
+     * pulp-runtime i2c.c expects the 8-bit base address in dev->cs.
+     * The driver handles this by left-shifting the 7-bit address by 1.
+     * So 0x69 << 1 = 0xD2.
      */
-    ASSERT_EQ("cs = 0x68 (7-bit, no shift)", (uint8_t)mock_dev_cs, 0x68);
+    ASSERT_EQ("cs = 0xD2 (8-bit, left-shifted 0x69)", (uint8_t)mock_dev_cs, 0xD2);
     ASSERT_EQ("i2c_id = 0", mock_dev_id, 0);
 }
 

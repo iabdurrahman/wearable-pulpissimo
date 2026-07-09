@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include "pulp.h"
 #include "mpu6050.h"
+#include "mpu6050_guard.h"
 
 #define NUM_READINGS 20   /* Number of gyro readings to take */
 
@@ -48,16 +49,28 @@ int main()
     }
     printf("\n");
 
-    /* ---- Test 2: Initialization ---- */
+    /* ---- Test 2: Initialization (auto-detect address) ---- */
     printf("[TEST 2] Initializing MPU-6050...\n");
-    printf("  (addr=0x%02X, will timeout if sensor not responding)\n", cfg.i2c_addr);
-    status = mpu6050_init(&cfg);
+
+    /* Try default address first (0x69) */
+    printf("  Trying addr=0x%02X...\n", cfg.i2c_addr);
+    status = mpu6050_init_guarded(&cfg);
+
+    /* If default fails, try alternate address (0x68) */
+    if (status != GYRO_OK) {
+        printf("  addr=0x%02X failed (err=%d), trying 0x%02X...\n",
+               cfg.i2c_addr, status, MPU6050_I2C_ADDR_ALT);
+        cfg.i2c_addr = MPU6050_I2C_ADDR_ALT;
+        status = mpu6050_init_guarded(&cfg);
+    }
+
     printf("  mpu6050_init returned: %d\n", status);
     if (status == GYRO_OK) {
-        printf("  PASS: Sensor initialized successfully\n");
+        printf("  PASS: Sensor initialized on addr=0x%02X\n", cfg.i2c_addr);
         pass_count++;
     } else {
-        printf("  FAIL: Initialization failed (err=%d)\n", status);
+        printf("  FAIL: Initialization failed on both addresses (err=%d)\n", status);
+        printf("  CHECK: Verify wiring, pull-ups on SDA/SCL, and AD0 pin state\n");
         fail_count++;
         printf("\n========================================\n");
         printf(" RESULTS: %d PASSED, %d FAILED\n", pass_count, fail_count);

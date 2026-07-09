@@ -141,10 +141,14 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
 {
     gyro_status_t status;
     uint8_t       who_am_i;
+    uint8_t       read_val;
 
     if (cfg == NULL) {
         return GYRO_ERR_NULL;
     }
+
+    printf("\n--- Test: Initialization ---\n");
+    printf("[INIT] Opening I2C...\n");
 
     /* Configure I2C device */
     i2c_dev_init(&l3g4200d_state.i2c_dev);
@@ -157,11 +161,17 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
     l3g4200d_state.i2c_dev.cs           = (cfg->i2c_addr << 1); 
     l3g4200d_state.i2c_dev.max_baudrate = cfg->i2c_freq;
 
+    printf("I2C Port : %d\n", l3g4200d_state.i2c_dev.id);
+    printf("Address  : 0x%02X\n", (uint8_t)l3g4200d_state.i2c_dev.cs);
+    printf("Baudrate : %d\n", l3g4200d_state.i2c_dev.max_baudrate);
+
     /* Open I2C bus */
     l3g4200d_state.i2c = i2c_open(&l3g4200d_state.i2c_dev);
     if (l3g4200d_state.i2c == NULL) {
+        printf("FAIL\n");
         return GYRO_ERR_I2C;
     }
+    printf("OK\n\n");
 
     /* Set I2C timeout */
     i2c_settimeout(GYRO_I2C_TIMEOUT_US, 1);
@@ -171,65 +181,84 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
     l3g4200d_state.range      = cfg->range;
     l3g4200d_state.sensitivity = l3g4200d_get_sensitivity(cfg->range);
 
-    /*
-     * Boot delay: L3G4200D needs ~5-10ms after power-up to load
-     * trimming parameters from internal flash (AN3393).
-     * Without this delay, register reads may fail or return garbage.
-     */
-    printf("[L3G4200D] Waiting for sensor boot...\n");
+    printf("[INIT] Waiting for sensor boot...\n");
     for (volatile int i = 0; i < GYRO_BOOT_DELAY_CYCLES; i++);
+    printf("OK\n\n");
 
     /* Verify WHO_AM_I */
-    printf("[L3G4200D] Reading WHO_AM_I register...\n");
+    printf("[INIT] Reading Part ID...\n");
+    printf("[READ] Reg 0x%02X\n", L3G4200D_REG_WHO_AM_I);
     status = l3g4200d_read_reg(L3G4200D_REG_WHO_AM_I, &who_am_i, 1);
     if (status != GYRO_OK) {
-        printf("[L3G4200D] WHO_AM_I read failed (err=%d)\n", status);
+        printf("FAIL: I2C Read Error (err=%d)\n", status);
         i2c_close(l3g4200d_state.i2c);
         return status;
     }
-
+    printf("[READ] Value = 0x%02X\n", who_am_i);
+    
     if (who_am_i != L3G4200D_WHO_AM_I_VALUE) {
-        printf("[L3G4200D] WHO_AM_I mismatch: expected 0x%02X, got 0x%02X\n",
-               L3G4200D_WHO_AM_I_VALUE, who_am_i);
+        printf("FAIL: Mismatch (expected 0x%02X)\n", L3G4200D_WHO_AM_I_VALUE);
         i2c_close(l3g4200d_state.i2c);
         return GYRO_ERR_ID;
     }
+    printf("OK\n\n");
 
-    /*
-     * Configure CTRL_REG1:
-     * - ODR 100Hz, BW 12.5Hz (L3G4200D_ODR_100HZ_BW12P5)
-     * - Normal mode (PD=1)
-     * - All axes enabled (X, Y, Z)
-     */
-    printf("[L3G4200D] Configuring CTRL_REG1...\n");
-    status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG1,
-                                L3G4200D_ODR_100HZ_BW12P5 |
-                                L3G4200D_NORMAL_MODE |
-                                L3G4200D_ALL_AXES_ENABLE);
+    /* Configure CTRL_REG1 */
+    uint8_t ctrl_reg1_val = L3G4200D_ODR_100HZ_BW12P5 | L3G4200D_NORMAL_MODE | L3G4200D_ALL_AXES_ENABLE;
+    printf("[INIT] Configuring CTRL_REG1...\n");
+    printf("[WRITE] Reg 0x%02X <- 0x%02X\n", L3G4200D_REG_CTRL_REG1, ctrl_reg1_val);
+    status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG1, ctrl_reg1_val);
     if (status != GYRO_OK) {
-        printf("[L3G4200D] CTRL_REG1 write failed (err=%d)\n", status);
+        printf("FAIL: Write Error\n");
         i2c_close(l3g4200d_state.i2c);
         return GYRO_ERR_CONFIG;
     }
 
-    /*
-     * Configure CTRL_REG4:
-     * - BDU = 1 (block data update until MSB+LSB read)
-     * - BLE = 0 (LSB at lower address)
-     * - FS = full-scale selection from config
-     */
-    printf("[L3G4200D] Configuring CTRL_REG4...\n");
-    status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG4,
-                                L3G4200D_BDU_BLOCKED | cfg->range);
+    /* Read back to verify */
+    printf("[READ] Reg 0x%02X\n", L3G4200D_REG_CTRL_REG1);
+    status = l3g4200d_read_reg(L3G4200D_REG_CTRL_REG1, &read_val, 1);
     if (status != GYRO_OK) {
-        printf("[L3G4200D] CTRL_REG4 write failed (err=%d)\n", status);
+        printf("FAIL: Read Error\n");
         i2c_close(l3g4200d_state.i2c);
         return GYRO_ERR_CONFIG;
     }
+    printf("[READ] Value = 0x%02X\n", read_val);
+    if (read_val != ctrl_reg1_val) {
+        printf("FAIL: Verification mismatch\n");
+        i2c_close(l3g4200d_state.i2c);
+        return GYRO_ERR_CONFIG;
+    }
+    printf("OK\n\n");
+
+    /* Configure CTRL_REG4 */
+    uint8_t ctrl_reg4_val = L3G4200D_BDU_BLOCKED | cfg->range;
+    printf("[INIT] Configuring CTRL_REG4...\n");
+    printf("[WRITE] Reg 0x%02X <- 0x%02X\n", L3G4200D_REG_CTRL_REG4, ctrl_reg4_val);
+    status = l3g4200d_write_reg(L3G4200D_REG_CTRL_REG4, ctrl_reg4_val);
+    if (status != GYRO_OK) {
+        printf("FAIL: Write Error\n");
+        i2c_close(l3g4200d_state.i2c);
+        return GYRO_ERR_CONFIG;
+    }
+
+    /* Read back to verify */
+    printf("[READ] Reg 0x%02X\n", L3G4200D_REG_CTRL_REG4);
+    status = l3g4200d_read_reg(L3G4200D_REG_CTRL_REG4, &read_val, 1);
+    if (status != GYRO_OK) {
+        printf("FAIL: Read Error\n");
+        i2c_close(l3g4200d_state.i2c);
+        return GYRO_ERR_CONFIG;
+    }
+    printf("[READ] Value = 0x%02X\n", read_val);
+    if (read_val != ctrl_reg4_val) {
+        printf("FAIL: Verification mismatch\n");
+        i2c_close(l3g4200d_state.i2c);
+        return GYRO_ERR_CONFIG;
+    }
+    printf("OK\n\n");
 
     l3g4200d_state.initialized = 1;
-    printf("[L3G4200D] Initialized successfully (WHO_AM_I=0x%02X, range=%d)\n",
-           who_am_i, cfg->range);
+    printf("[PASS] l3g4200d_init returns OK\n");
 
     return GYRO_OK;
 }
