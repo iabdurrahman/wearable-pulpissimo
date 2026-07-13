@@ -1,63 +1,21 @@
 /**
  * @file test_max30102.c
- * @brief Unit Tests for MAX30102 Pulse Oximeter & Heart Rate Sensor Library
+ * @brief Hardware Test / Bring-up Runner for the MAX30102 Driver
+ *
+ * Runs against real PULP/Nusacore FPGA hardware only (no host-side mock).
+ * Exercises init, configuration, and raw ADC acquisition, then drops into
+ * an infinite loop continuously streaming raw RED/IR samples for live
+ * monitoring on real hardware.
+ *
+ * No PPG signal processing (filtering, HR, SpO2, etc.) is tested or
+ * referenced here - that belongs to a separate algorithm library built
+ * on top of this driver.
  */
 
-#ifdef SOFTWARE_TEST
-    #include <stdint.h>
-    #include <string.h>
-    // Mock I2C structures for host PC testing
-    typedef struct {
-        int id;
-        char cs;
-        unsigned int max_baudrate;
-    } i2c_dev_t;
-    typedef void i2c_t;
-
-    // A simple state machine to mock MAX30102 registers
-    static uint8_t mock_regs[256] = {0};
-    static uint8_t last_reg_addr = 0;
-
-    void i2c_dev_init(i2c_dev_t *dev) {
-        memset(dev, 0, sizeof(i2c_dev_t));
-    }
-    
-    i2c_t* i2c_open(i2c_dev_t *dev) {
-        return (i2c_t*)1; // Return dummy valid pointer
-    }
-    
-    int i2c_write(i2c_t *dev, unsigned char *data, int length, int send_stop) {
-        if (length == 2) {
-            // Write register
-            mock_regs[data[0]] = data[1];
-        } else if (length == 1) {
-            // Set address pointer
-            last_reg_addr = data[0];
-        }
-        return 0;
-    }
-
-    int i2c_read(i2c_t *dev_i2c, unsigned char *rx_buff, int length, int pending) {
-        if (last_reg_addr == 0xFF) { // Part ID
-            rx_buff[0] = 0x15;
-        } else if (last_reg_addr == 0x09) { // MODE_CONFIG
-            // Auto-clear reset bit to prevent infinite loop during test
-            rx_buff[0] = mock_regs[last_reg_addr];
-            mock_regs[last_reg_addr] &= ~0x40; // MAX30102_MODE_RESET
-        } else {
-            for(int i=0; i<length; i++) {
-                rx_buff[i] = mock_regs[last_reg_addr + i];
-            }
-        }
-        return 0;
-    }
-#else
-    #include "pulp.h"
-#endif
+#include "pulp.h"
 #include "max30102.h"
 #include "max30102_regs.h"
 #include <stdio.h>
-#include <stdlib.h>
 
 int tests_passed = 0;
 int tests_failed = 0;
@@ -75,13 +33,19 @@ int tests_failed = 0;
 
 max30102_t sensor;
 
-void test_initialization() {
+void test_initialization(void) {
     printf("\n--- Test: Initialization ---\n");
     max30102_status_t status = max30102_init(&sensor, 0); // Use I2C port 0
     ASSERT(status == MAX30102_OK, "max30102_init returns OK");
 }
 
-void test_part_id() {
+void test_reset(void) {
+    printf("\n--- Test: Reset ---\n");
+    max30102_status_t status = max30102_reset(&sensor);
+    ASSERT(status == MAX30102_OK, "max30102_reset returns OK");
+}
+
+void test_part_id(void) {
     printf("\n--- Test: Part ID ---\n");
     uint8_t part_id = 0;
     max30102_status_t status = max30102_get_part_id(&sensor, &part_id);
@@ -89,51 +53,154 @@ void test_part_id() {
     ASSERT(part_id == MAX30102_EXPECTED_PART_ID, "Part ID is 0x15");
 }
 
-void test_calibration() {
-    printf("\n--- Test: Calibration (LED Amplitude) ---\n");
-    // Set typical current for 7mA
-    max30102_status_t status = max30102_set_led_amplitude(&sensor, 0x24, 0x24);
-    ASSERT(status == MAX30102_OK, "max30102_set_led_amplitude returns OK");
+void test_configure_default(void) {
+    printf("\n--- Test: Configure with Default Settings ---\n");
+    max30102_config_t config = max30102_get_default_config();
+    max30102_status_t status = max30102_configure(&sensor, &config);
+    ASSERT(status == MAX30102_OK, "max30102_configure (default) returns OK");
 }
 
-void test_fifo_read() {
-    printf("\n--- Test: FIFO Read ---\n");
-    uint32_t red_val = 0, ir_val = 0;
-    
-    // Clear FIFO first
+void test_configure_custom(void) {
+    printf("\n--- Test: Configure with Custom Settings ---\n");
+    max30102_config_t config;
+    config.sample_rate     = MAX30102_SR_100;
+    config.adc_range       = MAX30102_ADC_RANGE_8192;
+    config.pulse_width     = MAX30102_PULSE_WIDTH_16BIT;
+    config.fifo_avg        = MAX30102_FIFO_AVG_8;
+    config.red_led_current = 0x1F;
+    config.ir_led_current  = 0x1F;
+
+    max30102_status_t status = max30102_configure(&sensor, &config);
+    ASSERT(status == MAX30102_OK, "max30102_configure (custom) returns OK");
+}
+
+void test_clear_fifo(void) {
+    printf("\n--- Test: FIFO Clear ---\n");
+    max30102_status_t status = max30102_clear_fifo(&sensor);
+    ASSERT(status == MAX30102_OK, "max30102_clear_fifo returns OK");
+}
+
+void test_read_sample(void) {
+    printf("\n--- Test: Read RAW Sample ---\n");
+    max30102_sample_t sample = {0};
+
     max30102_status_t status = max30102_clear_fifo(&sensor);
     ASSERT(status == MAX30102_OK, "FIFO clear returns OK");
-    
-    // Read (might be empty initially)
-    status = max30102_read_fifo(&sensor, &red_val, &ir_val);
-    ASSERT(status == MAX30102_OK, "FIFO read returns OK");
-    
-    printf("Read FIFO values -> Red: %u, IR: %u\n", red_val, ir_val);
+
+    // Poll for the first sample: right after a clear, the sensor needs
+    // roughly one sample period before new data lands in the FIFO, so
+    // MAX30102_ERROR_NO_DATA immediately afterward is expected, not a fault.
+    status = MAX30102_ERROR_NO_DATA;
+    int attempts = 0;
+    const int max_attempts = 200; // generous timeout across sample rates
+    while (status == MAX30102_ERROR_NO_DATA && attempts < max_attempts) {
+        status = max30102_read_sample(&sensor, &sample);
+        if (status == MAX30102_ERROR_NO_DATA) {
+            for (volatile int i = 0; i < 10000; i++); // small settle delay
+            attempts++;
+        }
+    }
+    ASSERT(status == MAX30102_OK, "max30102_read_sample returns OK");
+
+    printf("RED : %u\n", sample.red);
+    printf("IR  : %u\n", sample.ir);
 }
 
-int main() {
+void test_fifo_empty(void) {
+    printf("\n--- Test: FIFO Empty ---\n");
+
+    max30102_clear_fifo(&sensor);
+
+    max30102_sample_t sample;
+    max30102_status_t status = max30102_read_sample(&sensor, &sample);
+    ASSERT(status == MAX30102_ERROR_NO_DATA, "read_sample reports NO_DATA on empty FIFO");
+}
+
+void test_invalid_param(void) {
+    printf("\n--- Test: Invalid Parameter Handling ---\n");
+
+    max30102_status_t status;
+
+    status = max30102_read_sample(NULL, NULL);
+    ASSERT(status == MAX30102_ERROR_INVALID_PARAM, "read_sample rejects NULL device");
+
+    status = max30102_read_sample(&sensor, NULL);
+    ASSERT(status == MAX30102_ERROR_INVALID_PARAM, "read_sample rejects NULL sample buffer");
+
+    status = max30102_configure(&sensor, NULL);
+    ASSERT(status == MAX30102_ERROR_INVALID_PARAM, "configure rejects NULL config");
+}
+
+/**
+ * @brief Continuously stream raw RED/IR samples. Never returns.
+ *
+ * Intended for live bring-up/monitoring on real hardware. Explicitly
+ * re-applies the default configuration first - it must not simply
+ * inherit whatever configuration a prior test left the sensor in
+ * (e.g. test_configure_custom() intentionally uses low-sensitivity
+ * settings to prove max30102_configure() works with custom values).
+ */
+void run_continuous_acquisition(void) {
+    printf("\n--- Continuous RAW Sample Acquisition (runs forever) ---\n");
+
+    max30102_config_t config = max30102_get_default_config();
+    max30102_status_t cfg_status = max30102_configure(&sensor, &config);
+    if (cfg_status != MAX30102_OK) {
+        printf("Failed to (re)configure sensor before acquisition (%d)\n", cfg_status);
+        return;
+    }
+
+    printf("RED,IR\n");
+
+    while (1) {
+        max30102_sample_t sample;
+        max30102_status_t status = max30102_read_sample(&sensor, &sample);
+
+        switch (status) {
+            case MAX30102_OK:
+                printf("%u,%u\n", sample.red, sample.ir);
+                break;
+
+            case MAX30102_ERROR_NO_DATA:
+                break;
+
+            default:
+                printf("Read Error (%d)\n", status);
+                break;
+        }
+
+        for (volatile int i = 0; i < 100000; i++); // pacing delay
+    }
+}
+
+int main(void) {
     printf("==========================================\n");
-    printf("      MAX30102 UNIT TEST RUNNER           \n");
+    printf("      MAX30102 DRIVER HARDWARE TEST       \n");
     printf("==========================================\n");
-    
+
     test_initialization();
+    test_reset();
     test_part_id();
-    test_calibration();
-    test_fifo_read();
-    
+    test_configure_default();
+    test_configure_custom();
+    test_clear_fifo();
+    test_read_sample();
+    test_fifo_empty();
+    test_invalid_param();
+
     printf("\n==========================================\n");
     printf("TEST RESULTS: %d PASS, %d FAIL\n", tests_passed, tests_failed);
     printf("==========================================\n");
-    
-    if (tests_failed > 0) return -1;
-    return 0;
+
+    // Falls through into an infinite acquisition loop for live monitoring.
+    run_continuous_acquisition();
+
+    return 0; // unreachable
 }
 
-#ifndef SOFTWARE_TEST
 void pe_start(void) {}
 
 // Dummy micros() to satisfy linker error in I2C driver
-uint32_t micros() {
+uint32_t micros(void) {
     return 0;
 }
-#endif

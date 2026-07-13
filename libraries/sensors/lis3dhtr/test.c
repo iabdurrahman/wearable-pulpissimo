@@ -24,7 +24,7 @@ int main(void)
         ret = lis3dhtr_read_accel(i2c, &accel);
         if (ret == LIS3DHTR_OK) {
             printf("X=%dmg Y=%dmg Z=%dmg\n\r",
-                   accel.x_mg, accel.y_mg, accel.z_mg);
+                   accel.x, accel.y, accel.z);
         } else {
             printf("[ERROR] read_accel failed, code=%d\n\r", ret);
         }

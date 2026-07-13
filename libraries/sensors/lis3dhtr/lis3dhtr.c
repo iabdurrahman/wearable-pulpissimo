@@ -99,9 +99,9 @@ int lis3dhtr_read_accel(i2c_t *i2c, accel_data_t *out)
     int16_t y_raw = (int16_t)((raw[3] << 8) | raw[2]) >> 6;
     int16_t z_raw = (int16_t)((raw[5] << 8) | raw[4]) >> 6;
 
-    out->x_mg = x_raw * SENSITIVITY_2G;
-    out->y_mg = y_raw * SENSITIVITY_2G;
-    out->z_mg = z_raw * SENSITIVITY_2G;
+    out->x = x_raw * SENSITIVITY_2G;
+    out->y = y_raw * SENSITIVITY_2G;
+    out->z = z_raw * SENSITIVITY_2G;
 
     return LIS3DHTR_OK;
 }

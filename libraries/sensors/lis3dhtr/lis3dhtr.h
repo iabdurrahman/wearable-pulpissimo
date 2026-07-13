@@ -34,9 +34,9 @@
 #define LIS3DHTR_ERR_READ           -8
 
 typedef struct {
-    int16_t x_mg;
-    int16_t y_mg;
-    int16_t z_mg;
+    int16_t x;
+    int16_t y;
+    int16_t z;
 } accel_data_t;
 
 i2c_t *lis3dhtr_open(void);
