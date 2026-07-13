@@ -69,12 +69,10 @@ static int             guard_timer_initialized = 0;
  * busy and will return.  l3g4200d_init() will then propagate errors
  * back to l3g4200d_init_guarded(), which checks l3g4200d_timeout_flag.
  *
- * NOTE (diagnostik): printf ditambahkan di sini SEMENTARA untuk
- * memastikan ISR ini benar-benar dipanggil hardware. Kalau baris
- * "[ISR] guard timer fired!" tidak pernah muncul di layar meski hang
- * terjadi, itu bukti kuat ISR tidak pernah tereksekusi (masalah di
- * rantai IRQ/timer, bukan di I2C). Hapus print ini lagi setelah
- * diagnosis selesai supaya ISR tetap ringan.
+ * NOTE: print diagnostik sudah dihapus setelah terbukti ISR ini
+ * benar-benar menyala (dikonfirmasi lewat l3g4200d_guard_selftest()).
+ * ISR sebaiknya tetap seringan mungkin -- printf di dalam ISR berisiko
+ * (non-reentrant, bisa lambat) jadi hanya dipakai untuk debug sesaat.
  */
 static void l3g4200d_timer_isr(void)
 {
@@ -84,10 +82,6 @@ static void l3g4200d_timer_isr(void)
 
     /* Signal timeout to the wrapper */
     l3g4200d_timeout_flag = 1;
-
-    /* --- DIAGNOSTIK SEMENTARA --- */
-    printf("[ISR] guard timer fired!\n");
-    /* --- akhir diagnostik --- */
 
     /* Clear UDMA I2C channels to unblock the busy-wait loops */
     plp_i2c_tx_clear(L3G4200D_I2C_PERIPH_ID);
@@ -190,9 +184,14 @@ int l3g4200d_guard_selftest(void)
     uint32_t t_start = pos_tick_get_counter_us();
     int fired = 0;
 
-    /* Busy-wait murni, cek flag tiap iterasi supaya begitu ISR mengubah
-     * flag, kita langsung tahu dan bisa keluar sedini mungkin. */
-    for (volatile long i = 0; i < 500000000L; i++) {
+    /* PENTING: loop dibatasi berbasis WAKTU REAL (tick counter), bukan
+     * jumlah iterasi tetap. FPGA ini jalan di ~10MHz, jadi angka iterasi
+     * tetap yang besar bisa makan waktu menit-menitan meski sebenarnya
+     * tidak stuck. Batas 300ms cukup jauh di atas target guard (~50ms)
+     * sehingga false-negative kecil kemungkinannya, tapi tetap cepat
+     * selesai kalau ISR memang tidak pernah menyala. */
+    const uint32_t SELFTEST_MAX_WAIT_US = 300000; /* 300ms */
+    while ((pos_tick_get_counter_us() - t_start) < SELFTEST_MAX_WAIT_US) {
         if (l3g4200d_timeout_flag) {
             fired = 1;
             break;

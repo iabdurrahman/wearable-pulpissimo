@@ -173,13 +173,18 @@ gyro_status_t l3g4200d_init(const l3g4200d_config_t *cfg)
     }
     printf("OK\n\n");
 
+    printf("OK bang1\n\n");
     /* Set I2C timeout */
     i2c_settimeout(GYRO_I2C_TIMEOUT_US, 1);
 
+    printf("OK bang\n\n");
+
     /* Store configuration */
+    printf("sebelumnya");
     l3g4200d_state.i2c_addr   = cfg->i2c_addr;
     l3g4200d_state.range      = cfg->range;
     l3g4200d_state.sensitivity = l3g4200d_get_sensitivity(cfg->range);
+    printf("disini");
 
     printf("[INIT] Waiting for sensor boot...\n");
     for (volatile int i = 0; i < GYRO_BOOT_DELAY_CYCLES; i++);
