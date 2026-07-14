@@ -41,13 +41,6 @@ void OLED_DisplayOn(void);
  */
 void OLED_DisplayOff(void);
 
-/**
- * @brief Invert display colors.
- *
- * @param enable true = invert, false = normal
- */
-void OLED_InvertDisplay(bool enable);
-
 //Specific Graphics
 
 /**
@@ -94,6 +87,34 @@ void OLED_FillRect(uint8_t x,
 void OLED_DrawCircle(uint8_t x0,
                      uint8_t y0,
                      uint8_t r,
+                     bool color);
+
+//Font Rendering
+
+/**
+ * @brief Draw a single character using 5x7 bitmap font.
+ *
+ * @param x Starting X coordinate.
+ * @param y Starting Y coordinate.
+ * @param c Character to draw.
+ * @param color true = pixel ON, false = pixel OFF.
+ */
+void OLED_DrawChar(uint8_t x,
+                   uint8_t y,
+                   char c,
+                   bool color);
+
+/**
+ * @brief Draw a string using 5x7 bitmap font.
+ *
+ * @param x Starting X coordinate.
+ * @param y Starting Y coordinate.
+ * @param str Pointer to null-terminated string.
+ * @param color true = pixel ON, false = pixel OFF.
+ */
+void OLED_DrawString(uint8_t x,
+                     uint8_t y,
+                     const char *str,
                      bool color);
 
 #endif /* OLED_H */

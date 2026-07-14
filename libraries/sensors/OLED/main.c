@@ -15,13 +15,15 @@ void Test_Line(void);
 void Test_Kotak(void);
 void Test_Tangga(void);
 void Test_Papancatur(void);
+void Test_Text(void);
+void Test_Circle(void);
 
 int main(void)
 {
     OLED_Init();
     OLED_Clear();
 
-    Test_Tangga();      /// change if u want test the other function
+    Test_Circle();      /// change if u want test the other function
 
     OLED_Update();
 
