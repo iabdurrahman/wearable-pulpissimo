@@ -5,6 +5,7 @@
 //#include "lis3dhtr.h" 
 #include "mpu6050.h"
 #include "step_counter.h"
+#include "rtc.h"
 
 void pe_start(void) {}
 
@@ -25,6 +26,18 @@ int main(void)
     if (lis3dhtr_init(i2c) != LIS3DHTR_OK) return -1;
     */
 
+    i2c_dev_t rtc_dev_conf;
+    i2c_t *rtc_i2c = NULL;
+    int rtc_ret = rtc_init(&rtc_dev_conf, &rtc_i2c);
+    if (rtc_ret != RTC_OK) {
+        printf("[ERROR] rtc_init failed, code=%d\n\r", rtc_ret);
+        return -1;
+    }
+
+    day_tracker_t dt;
+    day_tracker_init(&dt);
+    printf("[OK] day_tracker_init succeeded\n\r");
+    long         last_rtc_check_ms = 0;
 
     step_counter_t sc;
     step_counter_init(&sc);
@@ -37,6 +50,18 @@ int main(void)
 
     while (1) {
         long now_ms = pos_tick_get_counter_ms();
+
+        if ((now_ms - last_rtc_check_ms) >= 1000) { // cek per detik
+            int rollover = day_tracker_check_rollover(&dt, rtc_i2c);
+            if (rollover == 1) {
+                step_counter_reset(&sc);
+                last_steps = 0;
+                printf("[INFO] Pergantian hari terdeteksi, step count direset\n\r");
+            } else if (rollover < 0) {
+                printf("[ERROR] day_tracker_check_rollover failed, code=%d\n\r", rollover);
+            }
+            last_rtc_check_ms = now_ms;
+        }
 
         int ret = mpu6050_read_accel(i2c, &accel);
         if (ret != MPU6050_OK) {
