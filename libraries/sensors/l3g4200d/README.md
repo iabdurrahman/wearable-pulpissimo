@@ -13,7 +13,7 @@ Hanya berisi register yang benar-benar dipakai. Bukan port lengkap dari seluruh 
 - Error handling dengan status code yang jelas
 - **Tanpa floating-point** — semua konversi pakai integer fixed-point (×100)
 
-## Catatan Penting (Temuan dari Debugging)
+## Catatan Penting
 
 > [!IMPORTANT]
 > Pin SDO set HIGH untuk alamat I2C 0x69
