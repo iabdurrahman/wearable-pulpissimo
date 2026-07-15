@@ -2,8 +2,6 @@
 
 Driver library minimal untuk STMicroelectronics **L3G4200D** 3-Axis Digital Gyroscope pada board ICDeC FPGA (PULPissimo + Intel Cyclone 10), dibangun di atas [pulp-runtime](https://github.com/iabdurrahman/pulp-runtime.git) I2C driver.
 
-Hanya berisi register yang benar-benar dipakai. Bukan port lengkap dari seluruh peta register L3G4200D.
-
 ## Fitur
 
 - API minimal dan langsung pakai — hanya fungsi yang sudah terverifikasi di hardware
