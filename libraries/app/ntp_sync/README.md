@@ -98,3 +98,76 @@ Semuanya diatur otomatis dari cara Anda melakukan compile:
 2. **Mode Board:** Saat Anda menjalankan `source ./build.sh`, saklar akan otomatis mengaktifkan library Ethernet PULPissimo (karena tidak ada flag `-DTEST_DI_LAPTOP`).
 
 Tugas tim selanjutnya hanyalah mengisi bagian `#else` di Fungsi 1 dan 2 dengan library Ethernet bawaan board (LwIP). Fungsi 3 tidak perlu diubah sama sekali.
+
+---
+
+## ⚡ Versi STM32 (Sudah Berjalan di Hardware)
+
+> **PENTING:** Karena jalur SPI di board PULPissimo masih ada bug hardware (bus contention pada MISO), modul ini sudah di-porting dan **berhasil dijalankan di STM32 Nucleo F401RE** sebagai solusi sementara. Semua source code STM32 ada di folder `test_stm32/`.
+
+### Cara Menjalankan Versi STM32
+
+1. Buka folder `test_stm32/` menggunakan **VSCode + PlatformIO**.
+2. Hubungkan board STM32 Nucleo via USB.
+3. Hubungkan modul W5500 ke kabel LAN (router).
+4. Klik **Upload (→)** di PlatformIO, lalu buka **Serial Monitor**.
+
+### Wiring STM32 ↔ W5500 (SPI)
+
+| Pin STM32 | Pin W5500 | Fungsi |
+|-----------|-----------|--------|
+| D13 | SCK | Clock |
+| D12 | MISO | Data masuk |
+| D11 | MOSI | Data keluar |
+| D10 | SCS | Chip Select |
+
+### Wiring STM32 ↔ DS1307 (I2C)
+
+| Pin STM32 | Pin DS1307 | Fungsi |
+|-----------|------------|--------|
+| D14 (SDA) | SDA | Data |
+| D15 (SCL) | SCL | Clock |
+
+### API STM32 (C++ / Arduino)
+
+```cpp
+#include "ntp_sync.h"
+
+RTC_DS1307 rtc;
+
+void setup() {
+    Serial.begin(115200);
+
+    // 1. Inisialisasi hardware (W5500 + DS1307), otomatis DHCP
+    ntp_init(rtc);
+
+    // 2. Sinkronkan jam dari internet
+    if (ntp_sync_now(rtc) != NTP_OK) {
+        // Fallback manual jika internet mati
+        ntp_manual_set(rtc, 26, 7, 17, 12, 0, 0);
+    }
+}
+
+void loop() {
+    // 3. Baca jam dari RTC setiap detik
+    ntp_print_rtc_time(rtc);
+    delay(1000);
+}
+```
+
+### Konfigurasi yang Bisa Diubah (di `test_stm32/lib/ntp_sync/ntp_sync.h`)
+
+| Setting | Default | Keterangan |
+|---------|---------|------------|
+| `W5500_CS_PIN` | `10` | Pin Chip Select W5500 |
+| `BOARD_IP` | `192.168.1.111` | IP statis cadangan (jika DHCP gagal) |
+| `NTP_UTC_OFFSET_WIB` | `25200` | Zona waktu (7 × 3600 = UTC+7) |
+
+### Error Codes STM32
+
+| Kode | Artinya |
+|------|---------|
+| `-4` | Gagal kirim paket (cek kabel LAN) |
+| `-5` | Timeout (internet lambat / server down) |
+| `-8` | W5500 tidak terdeteksi (cek kabel SPI, awas bus contention!) |
+| `-9` | RTC DS1307 tidak terdeteksi (cek kabel I2C) |
