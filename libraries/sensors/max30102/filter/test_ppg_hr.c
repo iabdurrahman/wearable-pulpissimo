@@ -276,14 +276,14 @@ void run_continuous_hr_acquisition(void (*callback)(void *arg, bool sample_is_av
 
         ppg_hr_result_t hr_result;
 
-        if (last_run++ >= 100000)
-        {
+        //if (last_run++ >= 100000)
+        //{
             last_run = 0; /* reset last_run */
 
             /* do ppg stuff */
             status = max30102_read_sample(&sensor, &sample);
             if (status == MAX30102_OK) {
-                uint32_t t_ms = sw_now_ms(sample_period_ms);
+                uint32_t t_ms = pos_tick_get_counter_ms();
                 hr_result = ppg_hr_process(&hr, (int32_t)sample.ir, t_ms);
 
                 if (t_ms - last_print_ms >= 5000) {
@@ -299,7 +299,7 @@ void run_continuous_hr_acquisition(void (*callback)(void *arg, bool sample_is_av
                     printf("\n");
                 }
             }
-        }
+        //}
         /**
             * if last_run less than 100000, do nothing
             * well, actually just call callback
@@ -345,7 +345,7 @@ void hello_world(void *arg, bool sample_is_available, const void *result)
         /* do some thing */
         if (_arg->result_is_valid)
         {
-            printf("hello world [t=%us] Avg BPM=%d", (unsigned int)(current_tick / 1000), (int)_arg->hr_result.avg_bpm);
+            printf("\nhello world [t=%us] Avg BPM=%d\n", (unsigned int)(current_tick / 1000), (int)_arg->hr_result.avg_bpm);
         }
         else
         {

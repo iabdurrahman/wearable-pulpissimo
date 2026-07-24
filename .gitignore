@@ -42,3 +42,9 @@ libraries/app/ntp_sync/test_ntp
 # NTP Sync (STM32 PlatformIO)
 libraries/app/ntp_sync/test_stm32/.pio/
 libraries/app/ntp_sync/test_stm32/.vscode/
+
+# build Demo_ICDEC
+libraries/app/Demo_ICDEC_Medical/build.sh
+libraries/app/Demo_ICDEC_Medical/build/
+libraries/app/Demo_ICDEC_Medical/run_openocd.sh
+libraries/app/Demo_ICDEC_Medical/run_gdb.sh
