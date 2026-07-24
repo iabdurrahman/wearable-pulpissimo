@@ -30,6 +30,7 @@ int main(void) {
 
   // 1. Initialize MAX30102 FIRST
   printf("Initializing MAX30102...\n");
+  sensor.i2c_dev = NULL;
   max30102_status_t init_status = max30102_init(&sensor, 0);
   if (init_status != MAX30102_OK) {
     printf("\n[ERROR] Sensor MAX30102 NOT DETECTED (Status: %d)!\n",
@@ -56,7 +57,7 @@ int main(void) {
 
   // Initial UI Draw
   UG_FontSelect(&FONT_8X8);
-  UG_PutString(10, 10, "ICDEC Medicalll");
+  UG_PutString(10, 10, "ICDEC Medical");
   OLED_Update();
 
   // Variables for the loop
@@ -74,12 +75,16 @@ int main(void) {
 
   while (1) {
     // SWITCH I2C TO MAX30102 (100 kHz, Addr 0x57)
-    i2c_dev_t max_conf;
-    i2c_dev_init(&max_conf);
-    max_conf.id = 0;
-    max_conf.cs = MAX30102_I2C_ADDR << 1;
-    max_conf.max_baudrate = 100000;
-    i2c_open(&max_conf);
+    if (sensor.i2c_dev == NULL)
+    {
+        /* reopen device */
+        i2c_dev_t    max_conf;
+        i2c_dev_init(&max_conf);
+        max_conf.id = 0;
+        max_conf.cs = MAX30102_I2C_ADDR << 1;
+        max_conf.max_baudrate = 100000;
+        sensor.i2c_dev = i2c_open(&max_conf);
+    }
 
     // Drain the FIFO: read all available samples
     while (1) {
@@ -111,12 +116,28 @@ int main(void) {
             if (status != MAX30102_ERROR_NO_DATA) {
                 last_err_status = status;
             }
+
+            i2c_close((i2c_t *) sensor.i2c_dev);
+            sensor.i2c_dev = NULL;
+
             break; // No more data in FIFO
         }
     }
 
     uint32_t now = pos_tick_get_counter_ms();
     if (now - last_ui_update >= 1000) {
+      rtc_time_t  _rtc_time;
+
+      int retval;
+
+      i2c_dev_t    rtc_conf;
+      i2c_t     * _i2c;
+      i2c_dev_init(&rtc_conf);
+      rtc_conf.id = 0;
+      rtc_conf.cs = 0x68 << 1;
+      rtc_conf.max_baudrate = 100000;
+      _i2c = i2c_open(&rtc_conf);
+
       last_ui_update = now;
       print_counter++;
 
@@ -128,7 +149,25 @@ int main(void) {
 
       char date_str[20] = "24/07/2026";
       char time_str[20];
+
+      retval = rtc_get_time(_i2c, &_rtc_time);
+      if (retval == RTC_OK)
+      {
+        // overide with real time
+        s = _rtc_time.seconds;
+        m = _rtc_time.minutes;
+        h = _rtc_time.hours;
+      }
+      else
+      {
+        /* fake date */
+        _rtc_time.date = 24;
+        _rtc_time.month = 7;
+        _rtc_time.year = 26;
+      }
+
       snprintf(time_str, sizeof(time_str), "%02d:%02d:%02d", h, m, s);
+      snprintf(date_str, sizeof(date_str), "%02u/%02u/20%02u", _rtc_time.date, _rtc_time.month, _rtc_time.year);
       
       // Update BPM text every 5 seconds
       static char bpm_str[30] = "HR: --- bpm"; // Hold previous value
@@ -144,7 +183,7 @@ int main(void) {
       OLED_Clear();
 
       UG_FontSelect(&FONT_8X8); // Jam label
-      UG_PutString(10, 10, "ICDEC Medicalll");
+      UG_PutString(10, 10, "ICDEC Medical");
 
       UG_FontSelect(&FONT_6X8);
       UG_PutString(28, 45, date_str);
@@ -164,9 +203,15 @@ int main(void) {
       i2c_open(&oled_conf);
 
       OLED_Update();
-    }
 
-    pos_delay_busy_ms(5); // Small delay to prevent I2C bus spam
+      pos_delay_busy_ms(5); // Small delay to prevent I2C bus spam
+
+      i2c_close(_i2c);
+    }
+    else
+    {
+      pos_delay_busy_ms(5); // Small delay to prevent I2C bus spam
+    }
   }
 
   return 0;
