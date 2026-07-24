@@ -24,6 +24,8 @@
  * change.
  */
 
+#include <stdbool.h>
+
 #include "pulp.h"
 #include "max30102.h"
 #include "max30102_regs.h"
@@ -46,6 +48,13 @@ int tests_failed = 0;
 
 max30102_t sensor;
 ppg_hr_t hr;
+
+struct callback_arg_t
+{
+    long             last_print;
+    bool             result_is_valid;
+    ppg_hr_result_t  hr_result;
+};
 
 // -------------------------------------------------------------------------
 // Placeholder millisecond clock (see KNOWN LIMITATION above)
@@ -237,7 +246,9 @@ void test_invalid_param(void) {
  * @brief Continuously acquire raw IR samples from MAX30102, process through
  *        ppg_hr_process(), and print results in real time.
  */
-void run_continuous_hr_acquisition(void) {
+void run_continuous_hr_acquisition(void (*callback)(void *arg, bool sample_is_available, const void *result), void *callback_arg) {
+    unsigned int last_run;
+
     printf("\n--- PPG Heart Rate Continuous Acquisition (Avg BPM output every 5s @ 100 sps) ---\n");
 
     max30102_config_t config = build_sparkfun_example_config();
@@ -255,29 +266,98 @@ void run_continuous_hr_acquisition(void) {
 
     const uint32_t sample_period_ms = compute_fifo_period_ms(&config);
 
+    last_run = 0;
+
     while (1) {
+        bool sample_is_available = false;
+
         max30102_sample_t sample;
-        max30102_status_t status = max30102_read_sample(&sensor, &sample);
+        max30102_status_t status = MAX30102_ERROR_NO_DATA; /* default no data */
 
-        if (status == MAX30102_OK) {
-            uint32_t t_ms = sw_now_ms(sample_period_ms);
-            ppg_hr_result_t hr_result = ppg_hr_process(&hr, (int32_t)sample.ir, t_ms);
+        ppg_hr_result_t hr_result;
 
-            if (t_ms - last_print_ms >= 5000) {
-                last_print_ms = t_ms;
-                printf("[t=%us] Avg BPM=%d", (unsigned int)(t_ms / 1000), (int)hr_result.avg_bpm);
-                if (sample.ir < 50000) {
-                    printf(" (No finger?)");
+        if (last_run++ >= 100000)
+        {
+            last_run = 0; /* reset last_run */
+
+            /* do ppg stuff */
+            status = max30102_read_sample(&sensor, &sample);
+            if (status == MAX30102_OK) {
+                uint32_t t_ms = sw_now_ms(sample_period_ms);
+                hr_result = ppg_hr_process(&hr, (int32_t)sample.ir, t_ms);
+
+                if (t_ms - last_print_ms >= 5000) {
+                    last_print_ms = t_ms;
+                    printf("[t=%us] Avg BPM=%d", (unsigned int)(t_ms / 1000), (int)hr_result.avg_bpm);
+                    if (sample.ir < 50000) {
+                        printf(" (No finger?)");
+                    }
+                    else
+                    {
+                        sample_is_available = true;
+                    }
+                    printf("\n");
                 }
-                printf("\n");
             }
         }
+        /**
+            * if last_run less than 100000, do nothing
+            * well, actually just call callback
+            */
 
-        for (volatile int i = 0; i < 100000; i++); // pacing delay
+        /* call callback if not NULL */
+        if (callback != NULL)
+        {
+            callback(callback_arg, sample_is_available, &hr_result);
+        }
+    }
+}
+
+/**
+    * callback to be called continously by loop
+    * argument:
+    * arg: pointer passed by run_continuous_hr_acquisition as callback_arg
+    * sample_is_available: boolean value, that indicate hr_result is available and finger detected
+    * result: hr_result value, casted to generic pointer
+    */
+void hello_world(void *arg, bool sample_is_available, const void *result)
+{
+    struct callback_arg_t *_arg = (struct callback_arg_t *) arg;
+
+    long current_tick;
+    long last_print;
+
+    /* update data if valid */
+    if (sample_is_available)
+    {
+        _arg->result_is_valid = true; /* update validity */
+        _arg->hr_result = *((const ppg_hr_result_t *) result); /* update result */
+    }
+
+    /* try to print hello world every second */
+    last_print = _arg->last_print;
+    current_tick = pos_tick_get_counter_ms();
+    if (current_tick > (last_print + 1000))
+    {
+        /* update last_print */
+        _arg->last_print = current_tick;
+
+        /* do some thing */
+        if (_arg->result_is_valid)
+        {
+            printf("hello world [t=%us] Avg BPM=%d", (unsigned int)(current_tick / 1000), (int)_arg->hr_result.avg_bpm);
+        }
+        else
+        {
+            printf("hello world\n");
+        }
     }
 }
 
 int main(void) {
+
+    struct callback_arg_t arg;
+
     printf("==========================================\n");
     printf("        PPG HEART RATE LIBRARY TEST        \n");
     printf("==========================================\n");
@@ -291,7 +371,10 @@ int main(void) {
     printf("TEST RESULTS: %d PASS, %d FAIL\n", tests_passed, tests_failed);
     printf("==========================================\n");
 
-    run_continuous_hr_acquisition();
+    arg.last_print = pos_tick_get_counter_ms();
+    arg.result_is_valid = false;
+
+    run_continuous_hr_acquisition(&hello_world, &arg);
 
     return 0; // unreachable
 }
