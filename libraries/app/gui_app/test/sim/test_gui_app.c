@@ -26,6 +26,7 @@
 
 /* Include our watch face module */
 #include "../../screens/watch_face.h"
+#include "../../screens/heart_rate.h"
 
 /* =========================================================================
  * Inline mock of gui_manager logic (to avoid linking gui_port.c hardware)
@@ -33,6 +34,7 @@
  * ========================================================================= */
 typedef enum {
     SCREEN_WATCH_FACE = 0,
+    SCREEN_HEART_RATE = 1,
     SCREEN_COUNT
 } gui_screen_t;
 
@@ -281,6 +283,26 @@ static void test_time_update_dynamic(void)
     ASSERT(strcmp(buf, "13:00") == 0, "13:00 after 1 hour");
 }
 
+static void test_heart_rate_formatting(void)
+{
+    printf("\n[test_heart_rate_formatting]\n");
+    char buf[4];
+
+    heart_rate_init();
+
+    heart_rate_set_bpm(0);
+    heart_rate_get_bpm_str(buf, sizeof(buf));
+    ASSERT(strcmp(buf, "0") == 0, "0 BPM formatted correctly");
+
+    heart_rate_set_bpm(75);
+    heart_rate_get_bpm_str(buf, sizeof(buf));
+    ASSERT(strcmp(buf, "75") == 0, "75 BPM formatted correctly");
+
+    heart_rate_set_bpm(120);
+    heart_rate_get_bpm_str(buf, sizeof(buf));
+    ASSERT(strcmp(buf, "120") == 0, "120 BPM formatted correctly");
+}
+
 /* =========================================================================
  * Simulation Mode (Visual ASCII Dump)
  * ========================================================================= */
@@ -327,6 +349,7 @@ int main(int argc, char *argv[])
     test_gui_manager_init();
     test_gui_manager_screen_navigation();
     test_time_update_dynamic();
+    test_heart_rate_formatting();
 
     /* Visual simulation at the end */
     run_simulation();

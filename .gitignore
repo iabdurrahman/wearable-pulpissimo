@@ -57,3 +57,11 @@ libraries/app/gui_app/test/board/test_watch_face/build/
 libraries/app/gui_app/test/board/test_watch_face/build.sh
 libraries/app/gui_app/test/board/test_watch_face/run_openocd.sh
 libraries/app/gui_app/test/board/test_watch_face/run_gdb.sh
+
+# test_heart_rate
+libraries/app/gui_app/test/board/test_heart_rate/build/
+libraries/app/gui_app/test/board/test_heart_rate/run_*.sh
+libraries/app/gui_app/test/board/test_heart_rate/build.sh
+
+# sim test binary
+libraries/app/gui_app/test/sim/test_gui_app
