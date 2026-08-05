@@ -147,7 +147,7 @@ int main(void) {
       int h = 13 + ((33 + (print_counter / 60)) / 60);
       if (h >= 24) h = h % 24;
 
-      char date_str[20] = "24/07/2026";
+      char date_str[20];
       char time_str[20];
 
       retval = rtc_get_time(_i2c, &_rtc_time);
