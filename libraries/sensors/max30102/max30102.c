@@ -179,7 +179,7 @@ max30102_status_t max30102_reset(max30102_t *dev) {
         if (status != MAX30102_OK) return status;
 
         // Add a small delay if possible, or busy wait
-        for (volatile int i = 0; i < 10000; i++);
+        pos_delay_busy_ms(1);
     }
 
     return MAX30102_OK;

@@ -1,5 +1,6 @@
 #include "gui_manager.h"
 #include "screens/watch_face.h"
+#include "screens/heart_rate.h"
 
 /* Include friend's porting layer (read-only, no modifications) */
 #include "../../sensors/OLED/GUI/gui_port.h"
@@ -20,6 +21,7 @@ void gui_manager_init(void)
 
     /* Initialize all screen modules */
     watch_face_init();
+    heart_rate_init();
 
     /* Set default active screen */
     s_active_screen = SCREEN_WATCH_FACE;
@@ -54,10 +56,11 @@ void gui_manager_render(void)
         case SCREEN_WATCH_FACE:
             watch_face_render();
             break;
+        case SCREEN_HEART_RATE:
+            heart_rate_render();
+            break;
         /* Future screens:
-         * case SCREEN_HEART_RATE:
-         *     heart_rate_render();
-         *     break;
+         * case SCREEN_OXYGEN:
          */
         default:
             watch_face_render();
