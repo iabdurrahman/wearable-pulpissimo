@@ -220,4 +220,7 @@ int main(void) {
 void pe_start(void) {}
 
 // Dummy micros() to satisfy linker error in I2C driver
-uint32_t micros(void) { return 0; }
+unsigned long micros(void) __attribute__ ((weak))
+{
+    return (unsigned long) pos_tick_get_counter_ms();
+}
