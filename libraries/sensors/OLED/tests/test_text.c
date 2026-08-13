@@ -15,5 +15,5 @@ void Test_Text(void)
     //OLED_DrawString(0, 32, "(2009/02/14)", true);
     
     // 4. Text wrap test (will auto-wrap if it exceeds OLED_WIDTH)
-    OLED_DrawString(0, 32, "selebrasi dulu wle, full senyum hihi", true);
+    OLED_DrawString(0, 32, "selebrasi dulu yuhu, full senyum hihi", true);
 }

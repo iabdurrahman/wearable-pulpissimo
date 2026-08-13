@@ -246,7 +246,7 @@ static i2c_t *i2c_dev = NULL;
 
 static void OLED_I2C_Init(void)
 {
-    if (i2c_dev != NULL) return; // sudah di-init
+    if (i2c_dev != NULL) return; // udah di-init
 
     i2c_dev_t dev;
     i2c_dev_init(&dev);
@@ -275,7 +275,7 @@ static void OLED_WriteData(const uint8_t *data,
 
     /*
      * I2C_CMD_BUFFER_SIZE = 48, jadi kirim data per chunk
-     * agar tidak melebihi buffer UDMA.
+     * supaya gak melebihi buffer UDMA.
      * Setiap chunk: 1 byte control (0x40) + max 32 byte data.
      */
     #define OLED_CHUNK_SIZE 32
