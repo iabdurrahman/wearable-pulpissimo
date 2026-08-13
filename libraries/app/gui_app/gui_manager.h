@@ -9,8 +9,8 @@
  * ========================================================================= */
 typedef enum {
     SCREEN_WATCH_FACE = 0,
+    SCREEN_HEART_RATE = 1,
     /* Future screens (not implemented yet):
-     * SCREEN_HEART_RATE,
      * SCREEN_OXYGEN,
      * SCREEN_ACTIVITY,
      * SCREEN_STEP_COUNT,

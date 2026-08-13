@@ -44,8 +44,9 @@ This module provides a lightweight GUI application layer for displaying a **Watc
 | `gui_screen_t gui_manager_get_screen(void)` | Get the currently active screen ID. |
 | `void gui_manager_set_screen(gui_screen_t screen)` | Manually set the active screen. |
 
-**Screen IDs** (`gui_screen_t` enum):
-- `SCREEN_WATCH_FACE` (0) — Clock & Date display
+### 2. Available Screens (`gui_manager.h`)
+- `SCREEN_WATCH_FACE`: The main time & date display. Call `watch_face_set_time()` and `watch_face_set_date()` to update its state before rendering.
+- `SCREEN_HEART_RATE`: Heart rate display using `max30102` sensor. Call `heart_rate_set_bpm()` to update its state before rendering.
 
 ---
 
@@ -59,6 +60,16 @@ This module provides a lightweight GUI application layer for displaying a **Watc
 | `void watch_face_render(void)` | Draw time (HH:MM) and date (Sen, DD/MM/YYYY) to uGUI framebuffer. |
 | `void watch_face_get_time_str(char *buf, uint8_t size)` | Get formatted time string. Buffer ≥ 6 bytes. |
 | `void watch_face_get_date_str(char *buf, uint8_t size)` | Get formatted date string. Buffer ≥ 16 bytes. |
+
+---
+
+### screens/heart_rate.h
+
+| Function | Description |
+|---|---|
+| `void heart_rate_init(void)` | Initialize the heart rate screen layout. |
+| `void heart_rate_set_bpm(uint8_t bpm)` | Update the BPM value to display. Set `bpm = 0` to show '---'. |
+| `void heart_rate_render(void)` | Draw the heart rate UI (BPM and heart icon) to the uGUI framebuffer. |
 
 ---
 

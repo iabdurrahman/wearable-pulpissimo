@@ -147,7 +147,7 @@ int main(void) {
       int h = 13 + ((33 + (print_counter / 60)) / 60);
       if (h >= 24) h = h % 24;
 
-      char date_str[20] = "24/07/2026";
+      char date_str[20];
       char time_str[20];
 
       retval = rtc_get_time(_i2c, &_rtc_time);
@@ -220,4 +220,7 @@ int main(void) {
 void pe_start(void) {}
 
 // Dummy micros() to satisfy linker error in I2C driver
-uint32_t micros(void) { return 0; }
+unsigned long micros(void) __attribute__ ((weak))
+{
+    return (unsigned long) pos_tick_get_counter_ms();
+}

@@ -23,8 +23,12 @@ TARGET = test_gui_app
 # Source files
 SRCS = test_gui_app.c \
        $(APP_DIR)/screens/watch_face.c \
+       $(APP_DIR)/screens/heart_rate.c \
        $(UGUI_DIR)/ugui.c \
        $(UI_DIR)/Fonts/font_6x10.c \
+       $(UI_DIR)/Fonts/font_8x8.c \
+       $(UI_DIR)/Fonts/font_12x16.c \
+       $(UI_DIR)/Fonts/font_6x8.c \
        $(UI_DIR)/ugui_button.c \
        $(UI_DIR)/ugui_checkbox.c \
        $(UI_DIR)/ugui_image.c \

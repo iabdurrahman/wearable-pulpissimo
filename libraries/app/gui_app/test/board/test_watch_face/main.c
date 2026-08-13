@@ -98,7 +98,7 @@ int main(void) {
       format_2digit(&date_str[3], month);
       format_2digit(&date_str[8], year);
 
-      i2c_open(&oled_conf);
+      i2c_t *oled_i2c = i2c_open(&oled_conf);
 
       OLED_Clear();
 
@@ -112,6 +112,10 @@ int main(void) {
       UG_PutString(28, 45, date_str);
 
       OLED_Update();
+
+      if (oled_i2c != NULL) {
+          i2c_close(oled_i2c);
+      }
     }
 
     pos_delay_busy_ms(5);
