@@ -10,7 +10,6 @@
 static uint8_t framebuffer[OLED_WIDTH * OLED_HEIGHT / 8];
 
 //Private Function Prototypes
-static void OLED_I2C_Init(void);
 static void OLED_WriteCommand(uint8_t cmd);
 static void OLED_WriteData(const uint8_t *data, uint16_t length);
 
@@ -45,10 +44,16 @@ void OLED_Init(void)
 
     OLED_WriteCommand(OLED_CMD_NORMAL_DISPLAY);
 
+    OLED_I2C_Fini();
+
     OLED_Clear();
     OLED_Update();
 
+    OLED_I2C_Init();
+
     OLED_WriteCommand(OLED_CMD_DISPLAY_ON);
+
+    OLED_I2C_Fini();
 }
 
 void OLED_Clear(void)
@@ -60,6 +65,8 @@ void OLED_Clear(void)
 
 void OLED_Update(void)
 {
+    OLED_I2C_Init();
+
     /* Update display using Page Addressing Mode (Compatible with SSD1306 & SH1106) */
     for (uint8_t page = 0; page < 8; page++) {
         OLED_WriteCommand(0xB0 + page); // Set page address (B0~B7)
@@ -68,16 +75,26 @@ void OLED_Update(void)
 
         OLED_WriteData(&framebuffer[page * OLED_WIDTH], OLED_WIDTH);
     }
+
+    OLED_I2C_Fini();
 }
 
 void OLED_DisplayOn(void)
 {
+    OLED_I2C_Init();
+
     OLED_WriteCommand(OLED_CMD_DISPLAY_ON);
+
+    OLED_I2C_Fini();
 }
 
 void OLED_DisplayOff(void)
 {
+    OLED_I2C_Init();
+
     OLED_WriteCommand(OLED_CMD_DISPLAY_OFF);
+
+    OLED_I2C_Fini();
 }
 
 void OLED_DrawPixel(uint8_t x,
@@ -244,7 +261,7 @@ static i2c_t *i2c_dev = NULL;
 
 //Private Functions
 
-static void OLED_I2C_Init(void)
+void OLED_I2C_Init(void)
 {
     if (i2c_dev != NULL) return; // udah di-init
 
@@ -255,6 +272,14 @@ static void OLED_I2C_Init(void)
     dev.max_baudrate = 400000;              // 400 kHz (Fast mode)
 
     i2c_dev = i2c_open(&dev);
+}
+
+void OLED_I2C_Fini(void)
+{
+    if (i2c_dev == NULL) return; // belum di-init
+
+    i2c_close(i2c_dev);
+    i2c_dev = NULL;
 }
 
 static void OLED_WriteCommand(uint8_t cmd)

@@ -20,6 +20,9 @@
  */
 void OLED_Init(void);
 
+void OLED_I2C_Init(void);
+void OLED_I2C_Fini(void);
+
 /**
  * @brief Clear framebuffer.
  */

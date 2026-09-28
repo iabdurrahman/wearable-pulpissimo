@@ -77,6 +77,10 @@ void layer_stepcount_poll(void)
                 printf("[stepcount][ERROR] day_tracker_check_rollover() gagal, code=%d\n\r", rollover);
             }
             i2c_shared_select(LIS3DHTR_ADDR >> 1, 400000);
+
+            /* close i2c for rtc */
+            i2c_shared_rtc_delete_handle();
+            rtc_i2c = NULL;
         } else {
             printf("[stepcount][WARN] i2c_shared_rtc_handle() NULL, skip cek rollover hari\n\r");
         }

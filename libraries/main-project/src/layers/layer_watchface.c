@@ -67,6 +67,10 @@ static bool read_rtc_cached(rtc_time_t *out)
                     printf("[watchface][ERROR] rtc_get_time() gagal, code=%d\n\r", ret);
                 }
             }
+
+            /* close i2c for rtc */
+            i2c_shared_rtc_delete_handle();
+            rtc_i2c = NULL;
         } else {
             s_rtc_err_count++;
             s_rtc_consecutive_err++;

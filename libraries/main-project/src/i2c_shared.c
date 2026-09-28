@@ -59,3 +59,18 @@ i2c_t *i2c_shared_rtc_handle(void)
     }
     return s_rtc_ready ? s_rtc_i2c : NULL;
 }
+
+void i2c_shared_rtc_delete_handle(void)
+{
+    if (s_rtc_ready) {
+        if (s_rtc_i2c != NULL)
+        {
+            i2c_close(s_rtc_i2c);
+            s_rtc_i2c = NULL;
+        }
+
+        s_rtc_ready = false;
+
+        printf("[i2c_shared][OK] closing i2c() sukses\n\r");
+    }
+}
