@@ -20,5 +20,6 @@ void i2c_shared_select_oled(void);
 void i2c_shared_select_rtc(void);
 
 i2c_t *i2c_shared_rtc_handle(void);
+void i2c_shared_rtc_delete_handle(void);
 
 #endif
